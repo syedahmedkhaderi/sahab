@@ -1,0 +1,258 @@
+"""Session lifecycle state machine.
+
+States: requested -> (queued ->) starting -> running -> stopping -> stopped
+                                                                   -> failed
+"""
+
+from __future__ import annotations
+
+import logging
+from datetime import datetime, timezone
+
+from redis.asyncio import Redis
+from sqlalchemy import select, update
+from sqlalchemy.ext.asyncio import AsyncSession
+
+from app.config import Settings, get_settings
+from app.models import Image, Rate, ResourceType, Session, SessionState, User, UserStatus
+from app.services import credits as credits_svc
+from app.services import scheduler as scheduler_svc
+from app.services.jupyterhub import JupyterHubClient
+
+logger = logging.getLogger(__name__)
+
+
+async def _get_rate(resource_type: str, db: AsyncSession) -> float:
+    """Look up the credits-per-minute for a resource type."""
+    result = await db.execute(select(Rate).where(Rate.resource_type == resource_type))
+    rate = result.scalar_one_or_none()
+    if rate is None:
+        # Fall back to env defaults if the DB has no rate yet
+        settings = get_settings()
+        if resource_type == ResourceType.l4_gpu:
+            return settings.credits_per_minute_l4
+        return settings.credits_per_minute_cpu
+    return float(rate.credits_per_minute)
+
+
+async def create_session(
+    *,
+    db: AsyncSession,
+    redis: Redis,
+    user: User,
+    resource_type: str,
+    image_id: str | None,
+    cpu_fallback: bool = False,
+    settings: Settings,
+    hub: JupyterHubClient,
+) -> Session:
+    """
+    Entry point: request -> try GPU lease (or queue/CPU-fallback) -> starting.
+    """
+    # Validate user
+    if user.status != UserStatus.active:
+        raise ValueError(f"Account is {user.status}")
+
+    # Check credit balance for GPU sessions (CPU may be free)
+    if resource_type == ResourceType.l4_gpu:
+        balance = await credits_svc.get_balance(user.id, db)
+        if balance <= 0:
+            raise ValueError("Insufficient credits to start a GPU session")
+
+    # Check concurrent session limit
+    active_count_result = await db.execute(
+        select(Session).where(
+            Session.user_id == user.id,
+            Session.state.in_([
+                SessionState.starting, SessionState.running, SessionState.queued
+            ]),
+        )
+    )
+    active_sessions = list(active_count_result.scalars().all())
+    if len(active_sessions) >= settings.max_concurrent_sessions_per_user:
+        raise ValueError(
+            f"You already have {len(active_sessions)} active session(s). "
+            "Stop an existing session first."
+        )
+
+    # Resolve default image if none specified
+    if image_id is None and resource_type == ResourceType.l4_gpu:
+        result = await db.execute(
+            select(Image).where(Image.kind == "gpu", Image.is_default.is_(True), Image.enabled.is_(True))
+        )
+        img = result.scalar_one_or_none()
+        if img:
+            image_id = img.id
+    elif image_id is None:
+        result = await db.execute(
+            select(Image).where(Image.kind == "cpu", Image.is_default.is_(True), Image.enabled.is_(True))
+        )
+        img = result.scalar_one_or_none()
+        if img:
+            image_id = img.id
+
+    session = Session(
+        user_id=user.id,
+        image_id=image_id,
+        resource_type=resource_type,
+        state=SessionState.requested,
+    )
+    db.add(session)
+    await db.flush()  # get the session.id
+
+    if resource_type == ResourceType.l4_gpu:
+        gpu_uuid = await scheduler_svc.try_lease_gpu(session.id, db, redis)
+        if gpu_uuid is not None:
+            # GPU acquired — advance to starting
+            await _advance_to_starting_internal(session, gpu_uuid, db, hub, user, settings)
+        elif cpu_fallback:
+            # No GPU available and user opted for CPU fallback
+            session.resource_type = ResourceType.cpu
+            session.state = SessionState.starting
+            db.add(session)
+            await db.flush()
+            await _start_hub_server(session, None, db, hub, user, settings)
+        else:
+            # Queue the session
+            queue_pos = await scheduler_svc.enqueue_session(session.id, redis)
+            session.state = SessionState.queued
+            session.queue_pos = queue_pos
+            db.add(session)
+            await db.flush()
+    else:
+        # CPU session — start immediately
+        session.state = SessionState.starting
+        db.add(session)
+        await db.flush()
+        await _start_hub_server(session, None, db, hub, user, settings)
+
+    return session
+
+
+async def _advance_to_starting_internal(
+    session: Session,
+    gpu_uuid: str,
+    db: AsyncSession,
+    hub: JupyterHubClient,
+    user: User,
+    settings: Settings,
+) -> None:
+    session.state = SessionState.starting
+    session.queue_pos = None
+    db.add(session)
+    await db.flush()
+    await _start_hub_server(session, gpu_uuid, db, hub, user, settings)
+
+
+async def advance_to_starting(
+    session_id: str,
+    gpu_uuid: str,
+    db: AsyncSession,
+    redis: Redis,
+) -> None:
+    """Called by the queue drain worker when a GPU frees up for a queued session."""
+    settings = get_settings()
+    hub = JupyterHubClient(settings)
+
+    result = await db.execute(select(Session).where(Session.id == session_id))
+    session = result.scalar_one_or_none()
+    if session is None:
+        logger.warning("advance_to_starting: session %s not found", session_id)
+        return
+
+    user_result = await db.execute(select(User).where(User.id == session.user_id))
+    user = user_result.scalar_one_or_none()
+    if user is None:
+        return
+
+    await _advance_to_starting_internal(session, gpu_uuid, db, hub, user, settings)
+
+
+async def _start_hub_server(
+    session: Session,
+    gpu_uuid: str | None,
+    db: AsyncSession,
+    hub: JupyterHubClient,
+    user: User,
+    settings: Settings,
+) -> None:
+    """Call JupyterHub to spawn the container, then mark the session running."""
+    # Resolve image docker ref
+    image_ref = settings.workspace_gpu_image if gpu_uuid else settings.workspace_cpu_image
+    if session.image_id:
+        result = await db.execute(select(Image).where(Image.id == session.image_id))
+        img = result.scalar_one_or_none()
+        if img:
+            image_ref = img.docker_ref
+
+    username = user.email.split("@")[0]  # JupyterHub username derived from email
+
+    try:
+        await hub.ensure_user(username)
+        await hub.start_server(
+            username=username,
+            gpu_uuid=gpu_uuid,
+            image=image_ref,
+        )
+        # Mark as running once Hub accepts the request
+        now = datetime.now(tz=timezone.utc)
+        session.state = SessionState.running
+        session.started_at = now
+        session.last_metered_at = now
+        db.add(session)
+        await db.flush()
+    except Exception as exc:
+        logger.error("Failed to start JupyterHub server for session %s: %s", session.id, exc)
+        session.state = SessionState.failed
+        session.ended_at = datetime.now(tz=timezone.utc)
+        db.add(session)
+        await db.flush()
+        raise
+
+
+async def stop_session(
+    *,
+    db: AsyncSession,
+    redis: Redis,
+    session: Session,
+    settings: Settings,
+    hub: JupyterHubClient,
+) -> None:
+    """Stop a session: stopping -> Hub stop -> release GPU -> stopped."""
+    if session.state in (SessionState.stopped, SessionState.failed):
+        return
+
+    session.state = SessionState.stopping
+    db.add(session)
+    await db.flush()
+
+    user_result = await db.execute(select(User).where(User.id == session.user_id))
+    user = user_result.scalar_one_or_none()
+    username = user.email.split("@")[0] if user else session.user_id
+
+    try:
+        await hub.stop_server(username)
+    except Exception as exc:
+        logger.warning("JupyterHub stop_server error (continuing teardown): %s", exc)
+
+    # Release GPU if this was a GPU session
+    if session.resource_type == ResourceType.l4_gpu:
+        await scheduler_svc.release_gpu(session.id, db, redis)
+
+    now = datetime.now(tz=timezone.utc)
+    session.state = SessionState.stopped
+    session.ended_at = now
+    db.add(session)
+    await db.flush()
+
+    logger.info("Session %s stopped", session.id)
+
+
+async def get_session_for_user(
+    session_id: str, user_id: str, db: AsyncSession
+) -> Session | None:
+    """Fetch a session that belongs to the given user."""
+    result = await db.execute(
+        select(Session).where(Session.id == session_id, Session.user_id == user_id)
+    )
+    return result.scalar_one_or_none()

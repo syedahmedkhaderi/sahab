@@ -1,0 +1,26 @@
+# cloudflared tunnel config — file-based alternative to the --token flag.
+# If using this file instead of a token:
+#   1. Run `cloudflared tunnel login` on the host to authenticate.
+#   2. Run `cloudflared tunnel create sahab-mvp` to create the tunnel and get its UUID.
+#   3. Copy the generated credential file to /etc/cloudflared/<tunnel-uuid>.json
+#      (or adjust `credentials-file` below).
+#   4. Mount this file and the credential file into the container and change the
+#      compose command to: tunnel --config /etc/cloudflared/config.yml run
+#
+# The token-based approach (docker-compose.yml default) is simpler for MVP.
+
+tunnel: <tunnel-uuid>          # replace with output of `cloudflared tunnel create`
+credentials-file: /etc/cloudflared/<tunnel-uuid>.json
+
+ingress:
+  # Route all traffic to the local Traefik instance.
+  # Traefik handles path-based routing: / -> frontend, /api -> backend, /hub /user -> jupyterhub.
+  - hostname: sahab.example.com  # replace with your actual domain
+    service: http://traefik:80
+
+  # Required catch-all rule (cloudflared rejects config without it).
+  - service: http_status:404
+
+# Optional: enable Cloudflare WARP or Access integrations.
+# warp-routing:
+#   enabled: true

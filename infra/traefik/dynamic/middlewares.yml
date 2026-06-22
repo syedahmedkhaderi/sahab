@@ -1,0 +1,24 @@
+# Traefik dynamic configuration — shared middlewares
+# This file is watched by the file provider; changes take effect without restart.
+
+http:
+  middlewares:
+    # Strip /api prefix before forwarding to FastAPI (FastAPI mounts routes at /, not /api).
+    strip-api-prefix:
+      stripPrefix:
+        prefixes:
+          - "/api"
+
+    # Basic security headers applied to all public routers.
+    secure-headers:
+      headers:
+        frameDeny: true
+        browserXssFilter: true
+        contentTypeNosniff: true
+        forceSTSHeader: true
+        stsSeconds: 31536000
+        stsIncludeSubdomains: true
+        stsPreload: true
+        referrerPolicy: "strict-origin-when-cross-origin"
+        customResponseHeaders:
+          X-Powered-By: ""

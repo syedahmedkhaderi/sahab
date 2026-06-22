@@ -1,0 +1,349 @@
+---
+# Sahab GPU Platform — full production stack (§18)
+# Usage: docker compose -f infra/docker-compose.yml --env-file ../.env up -d
+# All secrets come from ../.env (copy from ../.env.example, never commit the real file).
+
+name: sahab
+
+services:
+  # ---------------------------------------------------------------------------
+  # Database
+  # ---------------------------------------------------------------------------
+  postgres:
+    image: postgres:16
+    restart: unless-stopped
+    env_file: ../.env
+    environment:
+      POSTGRES_USER: ${POSTGRES_USER}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD}
+      POSTGRES_DB: ${POSTGRES_DB}
+    volumes:
+      - pgdata:/var/lib/postgresql/data
+    networks:
+      - sahab-network
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U ${POSTGRES_USER} -d ${POSTGRES_DB}"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+    labels:
+      - "traefik.enable=false"
+
+  # ---------------------------------------------------------------------------
+  # Cache / queue / locks
+  # ---------------------------------------------------------------------------
+  redis:
+    image: redis:7-alpine
+    restart: unless-stopped
+    command: redis-server --save 60 1 --loglevel warning
+    volumes:
+      - redis-data:/data
+    networks:
+      - sahab-network
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 10s
+      timeout: 3s
+      retries: 5
+    labels:
+      - "traefik.enable=false"
+
+  # ---------------------------------------------------------------------------
+  # Backend — FastAPI control plane
+  # ---------------------------------------------------------------------------
+  backend:
+    build:
+      context: ../backend
+      dockerfile: Dockerfile
+    image: sahab-backend:latest
+    restart: unless-stopped
+    env_file: ../.env
+    depends_on:
+      postgres:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+    networks:
+      - sahab-network
+    healthcheck:
+      test: ["CMD-SHELL", "curl -f http://localhost:8000/api/health || exit 1"]
+      interval: 15s
+      timeout: 5s
+      retries: 5
+    labels:
+      - "traefik.enable=true"
+      - "traefik.http.routers.backend.rule=Host(`${PUBLIC_HOSTNAME}`) && PathPrefix(`/api`)"
+      - "traefik.http.routers.backend.entrypoints=websecure"
+      - "traefik.http.routers.backend.tls=true"
+      - "traefik.http.services.backend.loadbalancer.server.port=8000"
+
+  # ---------------------------------------------------------------------------
+  # Worker — metering / scheduler (same image as backend, different CMD)
+  # ---------------------------------------------------------------------------
+  worker:
+    build:
+      context: ../backend
+      dockerfile: Dockerfile
+    image: sahab-backend:latest
+    restart: unless-stopped
+    command: ["python", "-m", "app.worker"]
+    env_file: ../.env
+    depends_on:
+      postgres:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+    networks:
+      - sahab-network
+    labels:
+      - "traefik.enable=false"
+
+  # ---------------------------------------------------------------------------
+  # Frontend — Next.js product shell
+  # ---------------------------------------------------------------------------
+  frontend:
+    build:
+      context: ../frontend
+      dockerfile: Dockerfile
+    image: sahab-frontend:latest
+    restart: unless-stopped
+    env_file: ../.env
+    depends_on:
+      - backend
+    networks:
+      - sahab-network
+    healthcheck:
+      test: ["CMD-SHELL", "curl -f http://localhost:3000/ || exit 1"]
+      interval: 15s
+      timeout: 5s
+      retries: 5
+    labels:
+      - "traefik.enable=true"
+      - "traefik.http.routers.frontend.rule=Host(`${PUBLIC_HOSTNAME}`)"
+      - "traefik.http.routers.frontend.entrypoints=websecure"
+      - "traefik.http.routers.frontend.tls=true"
+      - "traefik.http.routers.frontend.priority=1"
+      - "traefik.http.services.frontend.loadbalancer.server.port=3000"
+
+  # ---------------------------------------------------------------------------
+  # JupyterHub — workspace orchestrator
+  # Mounts docker.sock so DockerSpawner can launch sibling containers.
+  # The socket is NOT forwarded into user containers (enforced in jupyterhub_config.py).
+  # ---------------------------------------------------------------------------
+  jupyterhub:
+    build:
+      context: ../jupyterhub
+      dockerfile: Dockerfile
+    image: sahab-hub:latest
+    restart: unless-stopped
+    env_file: ../.env
+    volumes:
+      - /var/run/docker.sock:/var/run/docker.sock
+      - ../jupyterhub/jupyterhub_config.py:/srv/jupyterhub/jupyterhub_config.py:ro
+      - sahab-hub-db:/srv/jupyterhub
+    environment:
+      DOCKER_NETWORK_NAME: ${DOCKER_NETWORK_NAME:-sahab-network}
+      WORKSPACE_GPU_IMAGE: ${WORKSPACE_GPU_IMAGE:-sahab-gpu-pytorch:latest}
+      WORKSPACE_CPU_IMAGE: ${WORKSPACE_CPU_IMAGE:-sahab-cpu-base:latest}
+      SHARED_DATASETS_PATH: ${SHARED_DATASETS_PATH:-/data/shared}
+      JUPYTERHUB_API_TOKEN: ${JUPYTERHUB_API_TOKEN}
+      OAUTH_CLIENT_ID: ${OAUTH_CLIENT_ID}
+      OAUTH_CLIENT_SECRET: ${OAUTH_CLIENT_SECRET}
+      PUBLIC_HOSTNAME: ${PUBLIC_HOSTNAME}
+      API_BASE_URL: http://backend:8000
+      AUTH_MODE: ${AUTH_MODE:-oauth}
+    depends_on:
+      - backend
+    networks:
+      - sahab-network
+    healthcheck:
+      test: ["CMD-SHELL", "curl -f http://localhost:8000/hub/health || exit 1"]
+      interval: 15s
+      timeout: 5s
+      retries: 5
+    labels:
+      - "traefik.enable=true"
+      # /hub/* routes (admin UI, API, login, oauth callback)
+      - "traefik.http.routers.hub.rule=Host(`${PUBLIC_HOSTNAME}`) && PathPrefix(`/hub`)"
+      - "traefik.http.routers.hub.entrypoints=websecure"
+      - "traefik.http.routers.hub.tls=true"
+      - "traefik.http.routers.hub.priority=10"
+      - "traefik.http.services.hub.loadbalancer.server.port=8000"
+      # /user/* routes (spawned user single-user servers)
+      - "traefik.http.routers.hub-user.rule=Host(`${PUBLIC_HOSTNAME}`) && PathPrefix(`/user`)"
+      - "traefik.http.routers.hub-user.entrypoints=websecure"
+      - "traefik.http.routers.hub-user.tls=true"
+      - "traefik.http.routers.hub-user.priority=10"
+      - "traefik.http.routers.hub-user.service=hub"
+
+  # ---------------------------------------------------------------------------
+  # Traefik — reverse proxy (single domain, §6)
+  # ---------------------------------------------------------------------------
+  traefik:
+    image: traefik:v3.0
+    restart: unless-stopped
+    ports:
+      - "80:80"
+      - "443:443"
+    volumes:
+      - /var/run/docker.sock:/var/run/docker.sock:ro
+      - ./traefik/traefik.yml:/etc/traefik/traefik.yml:ro
+      - ./traefik/dynamic:/etc/traefik/dynamic:ro
+      - traefik-certs:/etc/traefik/acme
+    networks:
+      - sahab-network
+    healthcheck:
+      test: ["CMD-SHELL", "traefik healthcheck --ping 2>/dev/null || wget -qO- http://localhost:8080/ping || exit 1"]
+      interval: 15s
+      timeout: 5s
+      retries: 3
+    labels:
+      - "traefik.enable=true"
+      # Traefik dashboard (internal only; not exposed on public router)
+      - "traefik.http.routers.traefik-dashboard.rule=Host(`traefik.${PUBLIC_HOSTNAME}`)"
+      - "traefik.http.routers.traefik-dashboard.entrypoints=websecure"
+      - "traefik.http.routers.traefik-dashboard.tls=true"
+      - "traefik.http.routers.traefik-dashboard.service=api@internal"
+
+  # ---------------------------------------------------------------------------
+  # Cloudflare Tunnel — outbound-only public exposure (Strategy A, §6)
+  # Set CLOUDFLARE_TUNNEL_TOKEN in .env; leave blank for Strategy B (skip this service).
+  # ---------------------------------------------------------------------------
+  cloudflared:
+    image: cloudflare/cloudflared:latest
+    restart: unless-stopped
+    command: tunnel --no-autoupdate run --token ${CLOUDFLARE_TUNNEL_TOKEN}
+    depends_on:
+      - traefik
+    networks:
+      - sahab-network
+    labels:
+      - "traefik.enable=false"
+
+  # ---------------------------------------------------------------------------
+  # Prometheus — metrics scraping
+  # ---------------------------------------------------------------------------
+  prometheus:
+    image: prom/prometheus:v2.53.0
+    restart: unless-stopped
+    volumes:
+      - ./prometheus/prometheus.yml:/etc/prometheus/prometheus.yml:ro
+      - prometheus-data:/prometheus
+    command:
+      - "--config.file=/etc/prometheus/prometheus.yml"
+      - "--storage.tsdb.path=/prometheus"
+      - "--storage.tsdb.retention.time=30d"
+      - "--web.enable-lifecycle"
+    networks:
+      - sahab-network
+    healthcheck:
+      test: ["CMD-SHELL", "wget -qO- http://localhost:9090/-/healthy || exit 1"]
+      interval: 15s
+      timeout: 5s
+      retries: 3
+    labels:
+      - "traefik.enable=false"
+
+  # ---------------------------------------------------------------------------
+  # Grafana — dashboards and alerts (§17)
+  # ---------------------------------------------------------------------------
+  grafana:
+    image: grafana/grafana:11.1.0
+    restart: unless-stopped
+    env_file: ../.env
+    environment:
+      GF_SECURITY_ADMIN_USER: ${GRAFANA_ADMIN_USER:-admin}
+      GF_SECURITY_ADMIN_PASSWORD: ${GRAFANA_ADMIN_PASSWORD}
+      GF_SERVER_ROOT_URL: "https://${PUBLIC_HOSTNAME}/grafana/"
+      GF_SERVER_SERVE_FROM_SUB_PATH: "true"
+    volumes:
+      - grafana-data:/var/lib/grafana
+      - ./grafana/provisioning:/etc/grafana/provisioning:ro
+    depends_on:
+      - prometheus
+    networks:
+      - sahab-network
+    healthcheck:
+      test: ["CMD-SHELL", "curl -f http://localhost:3000/api/health || exit 1"]
+      interval: 15s
+      timeout: 5s
+      retries: 3
+    labels:
+      - "traefik.enable=true"
+      - "traefik.http.routers.grafana.rule=Host(`${PUBLIC_HOSTNAME}`) && PathPrefix(`/grafana`)"
+      - "traefik.http.routers.grafana.entrypoints=websecure"
+      - "traefik.http.routers.grafana.tls=true"
+      - "traefik.http.services.grafana.loadbalancer.server.port=3000"
+
+  # ---------------------------------------------------------------------------
+  # NVIDIA DCGM exporter — per-GPU metrics for Prometheus (§17)
+  # ---------------------------------------------------------------------------
+  dcgm-exporter:
+    image: nvcr.io/nvidia/k8s/dcgm-exporter:3.3.5-3.4.0-ubuntu22.04
+    restart: unless-stopped
+    runtime: nvidia
+    environment:
+      NVIDIA_VISIBLE_DEVICES: all
+    cap_add:
+      - SYS_ADMIN
+    networks:
+      - sahab-network
+    labels:
+      - "traefik.enable=false"
+
+  # ---------------------------------------------------------------------------
+  # Node exporter — host OS metrics
+  # ---------------------------------------------------------------------------
+  node-exporter:
+    image: prom/node-exporter:v1.8.1
+    restart: unless-stopped
+    pid: host
+    volumes:
+      - /proc:/host/proc:ro
+      - /sys:/host/sys:ro
+      - /:/rootfs:ro
+    command:
+      - "--path.procfs=/host/proc"
+      - "--path.sysfs=/host/sys"
+      - "--collector.filesystem.mount-points-exclude=^/(sys|proc|dev|host|etc)($$|/)"
+    networks:
+      - sahab-network
+    labels:
+      - "traefik.enable=false"
+
+  # ---------------------------------------------------------------------------
+  # cAdvisor — per-container metrics
+  # ---------------------------------------------------------------------------
+  cadvisor:
+    image: gcr.io/cadvisor/cadvisor:v0.49.1
+    restart: unless-stopped
+    privileged: true
+    volumes:
+      - /:/rootfs:ro
+      - /var/run:/var/run:ro
+      - /sys:/sys:ro
+      - /var/lib/docker/:/var/lib/docker:ro
+    networks:
+      - sahab-network
+    labels:
+      - "traefik.enable=false"
+
+# ---------------------------------------------------------------------------
+# Networks
+# ---------------------------------------------------------------------------
+networks:
+  sahab-network:
+    name: sahab-network
+    driver: bridge
+    attachable: true  # allows JupyterHub-spawned sibling containers to join
+
+# ---------------------------------------------------------------------------
+# Named volumes
+# ---------------------------------------------------------------------------
+volumes:
+  pgdata:
+  redis-data:
+  sahab-hub-db:
+  grafana-data:
+  prometheus-data:
+  traefik-certs:

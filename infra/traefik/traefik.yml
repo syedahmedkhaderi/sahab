@@ -1,0 +1,84 @@
+# Traefik v3 static configuration — Sahab platform
+# Loaded at startup; changes require a Traefik restart.
+
+# ---------------------------------------------------------------------------
+# Entrypoints
+# ---------------------------------------------------------------------------
+entryPoints:
+  # Internal entrypoint for the Traefik API/dashboard and Prometheus metrics.
+  traefik:
+    address: ":8080"
+
+  # HTTP — redirects to HTTPS.
+  web:
+    address: ":80"
+    http:
+      redirections:
+        entryPoint:
+          to: websecure
+          scheme: https
+          permanent: true
+
+  # HTTPS — all public traffic.
+  websecure:
+    address: ":443"
+    http:
+      tls:
+        certResolver: letsencrypt
+
+# ---------------------------------------------------------------------------
+# Providers
+# ---------------------------------------------------------------------------
+providers:
+  # Docker provider: Traefik watches Docker events and reads service labels.
+  docker:
+    exposedByDefault: false
+    network: sahab-network
+
+  # File provider: pick up dynamic config (middlewares, extra routers) from a directory.
+  file:
+    directory: /etc/traefik/dynamic
+    watch: true
+
+# ---------------------------------------------------------------------------
+# Certificate resolvers (ACME / Let's Encrypt)
+# Leave ACME_EMAIL blank or unset to skip ACME and rely on Cloudflare TLS termination.
+# ---------------------------------------------------------------------------
+certificatesResolvers:
+  letsencrypt:
+    acme:
+      email: "${ACME_EMAIL:-admin@example.com}"
+      storage: /etc/traefik/acme/acme.json
+      httpChallenge:
+        entryPoint: web
+
+# ---------------------------------------------------------------------------
+# API and dashboard
+# The dashboard is exposed via the "traefik-dashboard" router defined in the
+# docker-compose.yml Traefik service labels (requires authentication middleware).
+# ---------------------------------------------------------------------------
+api:
+  dashboard: true
+  insecure: false
+
+# ---------------------------------------------------------------------------
+# Ping endpoint (used by Docker healthcheck)
+# ---------------------------------------------------------------------------
+ping: {}
+
+# ---------------------------------------------------------------------------
+# Logging
+# ---------------------------------------------------------------------------
+log:
+  level: INFO
+
+accessLog: {}
+
+# ---------------------------------------------------------------------------
+# Metrics — Prometheus scrape target on :8080/metrics
+# ---------------------------------------------------------------------------
+metrics:
+  prometheus:
+    entryPoint: traefik
+    addEntryPointsLabels: true
+    addServicesLabels: true
