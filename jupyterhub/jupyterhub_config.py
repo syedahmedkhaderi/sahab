@@ -1,0 +1,165 @@
+"""jupyterhub_config.py — Sahab production JupyterHub configuration.
+
+Supports two authentication modes selected by the AUTH_MODE env var:
+  AUTH_MODE=oauth  (default) — GenericOAuthenticator pointing at the FastAPI OAuth provider.
+  AUTH_MODE=native           — NativeAuthenticator for standalone Phase-1 use.
+
+Security hardening per §16: cap_drop, no-new-privileges, pids_limit, no Docker socket
+in user containers.
+
+GPU assignment: a pre_spawn_hook reads NVIDIA_VISIBLE_DEVICES from the spawner
+environment, falling back to "all" for Phase-1 standalone use. The control plane
+injects the leased GPU UUID per-session via the JupyterHub API user options.
+"""
+import os
+
+# ---------------------------------------------------------------------------
+# Hub network settings
+# ---------------------------------------------------------------------------
+c.JupyterHub.hub_ip = "0.0.0.0"
+c.JupyterHub.hub_connect_ip = os.environ.get("HUB_CONNECT_IP", "jupyterhub")
+c.JupyterHub.port = 8000
+
+# The hub exposes its admin API on a separate port so Traefik only routes /hub/* /user/*
+# and the admin API stays internal.
+c.JupyterHub.hub_port = 8081
+
+# ---------------------------------------------------------------------------
+# Persistence
+# ---------------------------------------------------------------------------
+c.JupyterHub.db_url = os.environ.get(
+    "JUPYTERHUB_DB_URL", "sqlite:////srv/jupyterhub/jupyterhub.sqlite"
+)
+c.JupyterHub.cookie_secret_file = "/srv/jupyterhub/jupyterhub_cookie_secret"
+
+# ---------------------------------------------------------------------------
+# DockerSpawner
+# ---------------------------------------------------------------------------
+c.JupyterHub.spawner_class = "dockerspawner.DockerSpawner"
+
+# Default to GPU image; control plane overrides per-session via user_options.
+c.DockerSpawner.image = os.environ.get("WORKSPACE_GPU_IMAGE", "sahab-gpu-pytorch:latest")
+
+# User containers join the same overlay network as the hub so they can reach
+# the hub for auth, but NOT the host or the DB (network isolation per §16).
+c.DockerSpawner.network_name = os.environ.get("DOCKER_NETWORK_NAME", "sahab-network")
+c.DockerSpawner.use_internal_ip = True
+
+# Remove the container on stop so stale containers don't accumulate.
+c.DockerSpawner.remove = True
+
+# ---------------------------------------------------------------------------
+# Security hardening (§16): unprivileged containers, no new privileges, PID cap.
+# The Docker socket is NEVER mounted into user containers.
+# ---------------------------------------------------------------------------
+c.DockerSpawner.extra_host_config = {
+    "runtime": "nvidia",
+    "cap_drop": ["ALL"],
+    "security_opt": ["no-new-privileges:true"],
+    "pids_limit": 512,
+}
+
+# ---------------------------------------------------------------------------
+# Per-user GPU assignment via pre_spawn_hook.
+# The control plane passes the leased GPU UUID through user_options at spawn
+# time. Phase-1 fallback is "all" (both L4s visible; safe when only one user
+# is active and no control plane is running yet).
+# ---------------------------------------------------------------------------
+async def pre_spawn_hook(spawner):
+    """Inject NVIDIA_VISIBLE_DEVICES from user_options or fall back to 'all'."""
+    gpu_uuid = spawner.user_options.get("gpu_uuid") or os.environ.get(
+        "NVIDIA_VISIBLE_DEVICES", "all"
+    )
+    spawner.environment["NVIDIA_VISIBLE_DEVICES"] = gpu_uuid
+    spawner.environment["NVIDIA_DRIVER_CAPABILITIES"] = "compute,utility"
+
+    # Allow the control plane to select a different image per-session.
+    if "image" in spawner.user_options:
+        spawner.image = spawner.user_options["image"]
+
+
+c.Spawner.pre_spawn_hook = pre_spawn_hook
+
+# ---------------------------------------------------------------------------
+# Per-user persistent volume and shared read-only datasets
+# ---------------------------------------------------------------------------
+_notebook_dir = "/home/jovyan/work"
+_shared_datasets = os.environ.get("SHARED_DATASETS_PATH", "/data/shared")
+
+c.DockerSpawner.notebook_dir = _notebook_dir
+c.DockerSpawner.volumes = {
+    "sahab-user-{username}": _notebook_dir,
+    _shared_datasets: {"bind": "/home/jovyan/shared", "mode": "ro"},
+}
+
+# ---------------------------------------------------------------------------
+# Resource limits per container (§16)
+# ---------------------------------------------------------------------------
+c.DockerSpawner.mem_limit = os.environ.get("CONTAINER_MEM_LIMIT", "32G")
+c.DockerSpawner.cpu_limit = float(os.environ.get("CONTAINER_CPU_LIMIT", "8"))
+
+# ---------------------------------------------------------------------------
+# Idle-culler service (§7: idle timeout = 45 min = 2700 s)
+# ---------------------------------------------------------------------------
+c.JupyterHub.services = [
+    {
+        "name": "idle-culler",
+        "command": [
+            "python", "-m", "jupyterhub_idle_culler",
+            f"--timeout={os.environ.get('IDLE_TIMEOUT_SECONDS', '2700')}",
+            "--cull-users=False",
+        ],
+    }
+]
+
+# ---------------------------------------------------------------------------
+# Authentication — selected by AUTH_MODE env var
+# ---------------------------------------------------------------------------
+_auth_mode = os.environ.get("AUTH_MODE", "oauth").lower()
+
+if _auth_mode == "native":
+    # Phase-1 standalone: NativeAuthenticator (username + password stored locally)
+    c.JupyterHub.authenticator_class = "nativeauthenticator.NativeAuthenticator"
+    c.NativeAuthenticator.enable_signup = True
+    c.NativeAuthenticator.minimum_password_length = 8
+    c.NativeAuthenticator.check_common_password = True
+    c.Authenticator.admin_users = {
+        u.strip()
+        for u in os.environ.get("JUPYTERHUB_ADMIN_USERS", "admin").split(",")
+        if u.strip()
+    }
+
+else:
+    # Production: GenericOAuthenticator -> FastAPI OAuth provider (§9)
+    from oauthenticator.generic import GenericOAuthenticator
+
+    c.JupyterHub.authenticator_class = GenericOAuthenticator
+
+    _api_base = os.environ.get("API_BASE_URL", "http://backend:8000")
+
+    c.GenericOAuthenticator.client_id = os.environ.get("OAUTH_CLIENT_ID", "jupyterhub")
+    c.GenericOAuthenticator.client_secret = os.environ.get("OAUTH_CLIENT_SECRET", "")
+    c.GenericOAuthenticator.oauth_callback_url = (
+        f"https://{os.environ.get('PUBLIC_HOSTNAME', 'localhost')}/hub/oauth_callback"
+    )
+    c.GenericOAuthenticator.authorize_url = f"{_api_base}/api/oauth/authorize"
+    c.GenericOAuthenticator.token_url = f"{_api_base}/api/oauth/token"
+    c.GenericOAuthenticator.userdata_url = f"{_api_base}/api/oauth/userinfo"
+
+    # Map the "sub" field in the userinfo JSON to the JupyterHub username.
+    c.GenericOAuthenticator.username_key = "sub"
+    c.GenericOAuthenticator.login_service = "Sahab"
+    c.GenericOAuthenticator.allow_all = True  # access control is in FastAPI
+
+# ---------------------------------------------------------------------------
+# Service API token (used by the control plane to call JupyterHub's REST API)
+# ---------------------------------------------------------------------------
+_api_token = os.environ.get("JUPYTERHUB_API_TOKEN", "")
+if _api_token:
+    c.JupyterHub.services.append(
+        {
+            "name": "sahab-control-plane",
+            "api_token": _api_token,
+            "admin": True,
+        }
+    )
