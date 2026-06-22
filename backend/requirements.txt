@@ -1,0 +1,18 @@
+# Flat pinned mirror of pyproject.toml [project.dependencies]
+# Used by the Dockerfile. Keep in sync with pyproject.toml.
+fastapi==0.115.5
+uvicorn[standard]==0.32.1
+sqlalchemy[asyncio]==2.0.36
+psycopg[binary]==3.2.3
+alembic==1.14.0
+pydantic==2.10.3
+pydantic-settings==2.6.1
+python-jose[cryptography]==3.3.0
+passlib[bcrypt]==1.7.4
+redis==5.2.0
+httpx==0.28.1
+authlib==1.3.2
+apscheduler==3.10.4
+email-validator==2.2.0
+python-multipart==0.0.18
+bcrypt==4.2.1

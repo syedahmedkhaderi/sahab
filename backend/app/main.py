@@ -10,7 +10,7 @@ from fastapi.middleware.cors import CORSMiddleware
 
 from app.config import get_settings
 from app.db import engine, Base
-from app.routers import admin, auth, catalog, credits, me, oauth, sessions
+from app.routers import admin, auth, catalog, credits, me, metrics, oauth, sessions
 
 logger = logging.getLogger(__name__)
 settings = get_settings()
@@ -145,6 +145,7 @@ def create_app() -> FastAPI:
     app.include_router(credits.router, prefix=prefix)
     app.include_router(admin.router, prefix=prefix)
     app.include_router(oauth.router, prefix=prefix)
+    app.include_router(metrics.router, prefix=prefix)
 
     @app.get("/api/health")
     async def health() -> dict:
