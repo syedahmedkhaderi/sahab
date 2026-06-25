@@ -31,6 +31,9 @@ c.JupyterHub.db_url = os.environ.get(
     "JUPYTERHUB_DB_URL", "sqlite:////srv/jupyterhub/jupyterhub.sqlite"
 )
 c.JupyterHub.cookie_secret_file = "/srv/jupyterhub/jupyterhub_cookie_secret"
+# Prometheus scrapes the hub from the internal Docker network; disable auth so
+# metrics collection works without introducing another managed service token.
+c.JupyterHub.authenticate_prometheus = False
 
 # ---------------------------------------------------------------------------
 # DockerSpawner
@@ -39,6 +42,8 @@ c.JupyterHub.spawner_class = "dockerspawner.DockerSpawner"
 
 # Default to GPU image; control plane overrides per-session via user_options.
 c.DockerSpawner.image = os.environ.get("WORKSPACE_GPU_IMAGE", "sahab-gpu-pytorch:latest")
+# Allow the control plane to select any configured workspace image at spawn time.
+c.DockerSpawner.allowed_images = "*"
 
 # User containers join the same overlay network as the hub so they can reach
 # the hub for auth, but NOT the host or the DB (network isolation per §16).
@@ -76,6 +81,10 @@ async def pre_spawn_hook(spawner):
     # Allow the control plane to select a different image per-session.
     if "image" in spawner.user_options:
         spawner.image = spawner.user_options["image"]
+    if "mem_limit" in spawner.user_options:
+        spawner.mem_limit = spawner.user_options["mem_limit"]
+    if "cpu_limit" in spawner.user_options:
+        spawner.cpu_limit = float(spawner.user_options["cpu_limit"])
 
 
 c.Spawner.pre_spawn_hook = pre_spawn_hook
@@ -101,6 +110,18 @@ c.DockerSpawner.cpu_limit = float(os.environ.get("CONTAINER_CPU_LIMIT", "8"))
 # ---------------------------------------------------------------------------
 # Idle-culler service (§7: idle timeout = 45 min = 2700 s)
 # ---------------------------------------------------------------------------
+c.JupyterHub.load_roles = [
+    {
+        "name": "idle-culler",
+        "scopes": [
+            "list:users",
+            "read:users:activity",
+            "servers",
+        ],
+        "services": ["idle-culler"],
+    }
+]
+
 c.JupyterHub.services = [
     {
         "name": "idle-culler",
@@ -147,7 +168,7 @@ else:
     c.GenericOAuthenticator.userdata_url = f"{_api_base}/api/oauth/userinfo"
 
     # Map the "sub" field in the userinfo JSON to the JupyterHub username.
-    c.GenericOAuthenticator.username_key = "sub"
+    c.GenericOAuthenticator.username_claim = "sub"
     c.GenericOAuthenticator.login_service = "Sahab"
     c.GenericOAuthenticator.allow_all = True  # access control is in FastAPI
 

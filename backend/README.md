@@ -24,7 +24,7 @@ DATABASE_URL=postgresql+psycopg://sahab:sahab@localhost:5432/sahab \
 uvicorn app.main:app --reload --host 0.0.0.0 --port 8000
 ```
 
-For local dev without Postgres, the default `DATABASE_URL` in `.env.example` uses SQLite (`sqlite+aiosqlite:///./sahab_dev.db`). Tables are created automatically on startup via `Base.metadata.create_all`.
+For local dev without Postgres, the backend falls back to SQLite (`sqlite+aiosqlite:///./sahab_dev.db`) if `DATABASE_URL` is unset. Tables are created automatically on startup via `Base.metadata.create_all`.
 
 ## Running the worker
 

@@ -35,19 +35,20 @@ bash scripts/build_images.sh
 # The GPU smoke test must print OK and show the L4 before the image is usable.
 
 # 3. Bring up the platform stack (Phases 2-4)
-docker compose -f infra/docker-compose.yml up -d --build
+docker compose --env-file .env -f infra/docker-compose.yml up -d --build
+# Add --profile cloudflare once CLOUDFLARE_TUNNEL_TOKEN is set.
 
 # 4. Initialize the database (first run)
-docker compose -f infra/docker-compose.yml exec backend alembic upgrade head
+docker compose --env-file .env -f infra/docker-compose.yml exec backend alembic upgrade head
 
 # 5. Seed GPU inventory from the real hardware
-scripts/discover_gpus.sh --sql | docker compose -f infra/docker-compose.yml exec -T postgres psql -U "$POSTGRES_USER" -d "$POSTGRES_DB"
+scripts/discover_gpus.sh --sql | docker compose --env-file .env -f infra/docker-compose.yml exec -T postgres sh -lc 'psql -U "$POSTGRES_USER" -d "$POSTGRES_DB"'
 ```
 
 ## Exposure strategies (blueprint §6)
 
-- **Strategy A (target): Cloudflare Tunnel.** Set `CLOUDFLARE_TUNNEL_TOKEN`; the `cloudflared` service makes an outbound-only connection mapping `PUBLIC_HOSTNAME` to Traefik. No inbound ports, no public IP. Optionally gate with Cloudflare Access. Users no longer need the VPN.
-- **Strategy B (day-one fallback): university network only.** Skip cloudflared; reach the platform via the existing VPN at `http://<server-ip>`. Migrate to A later by adding the token — nothing else changes.
+- **Strategy A (target): Cloudflare Tunnel.** Set `CLOUDFLARE_TUNNEL_TOKEN` and start Compose with `--profile cloudflare`; the `cloudflared` service makes an outbound-only connection mapping `PUBLIC_HOSTNAME` to Traefik. No inbound ports, no public IP. Optionally gate with Cloudflare Access. Users no longer need the VPN.
+- **Strategy B (day-one fallback): university network only.** Leave the token blank and omit the Cloudflare profile; reach the platform via the existing VPN at `http://<server-ip>`. Migrate to A later by adding the token and the profile.
 
 ## Internal routing
 

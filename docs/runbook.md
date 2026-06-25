@@ -27,7 +27,7 @@ Build + smoke-test (`scripts/build_images.sh`), then enable via admin. Disable a
 
 ### Re-seed GPU inventory (after hardware change)
 ```bash
-scripts/discover_gpus.sh --sql | docker compose -f infra/docker-compose.yml exec -T postgres psql -U "$POSTGRES_USER" -d "$POSTGRES_DB"
+scripts/discover_gpus.sh --sql | docker compose --env-file .env -f infra/docker-compose.yml exec -T postgres sh -lc 'psql -U "$POSTGRES_USER" -d "$POSTGRES_DB"'
 ```
 
 ## Incident playbooks

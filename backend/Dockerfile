@@ -7,6 +7,7 @@ LABEL org.opencontainers.image.description="Sahab GPU Platform — FastAPI contr
 
 # System deps (libpq needed by psycopg binary wheel)
 RUN apt-get update && apt-get install -y --no-install-recommends \
+    curl \
     libpq5 \
     && rm -rf /var/lib/apt/lists/*
 

@@ -65,19 +65,17 @@ class JupyterHubClient:
         """
         Request JupyterHub to start this user's single-user server.
 
-        Passes NVIDIA_VISIBLE_DEVICES for GPU sessions, and container
-        resource limits.
+        The JupyterHub spawn API forwards the JSON body into spawner
+        user_options, which our pre_spawn_hook reads to apply image,
+        GPU assignment, and container resource limits.
         """
-        env: dict[str, str] = {}
-        if gpu_uuid:
-            env["NVIDIA_VISIBLE_DEVICES"] = gpu_uuid
-
         payload: dict[str, Any] = {
             "image": image,
-            "environment": env,
             "mem_limit": mem_limit,
             "cpu_limit": cpu_limit,
         }
+        if gpu_uuid:
+            payload["gpu_uuid"] = gpu_uuid
 
         async with self._client() as client:
             resp = await client.post(

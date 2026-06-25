@@ -88,18 +88,19 @@ All other services communicate on the internal `sahab-network` bridge only.
 cp .env.example .env
 # Fill in .env (secrets, domain, etc.)
 
-docker compose -f infra/docker-compose.yml --env-file .env up -d
+docker compose --env-file .env -f infra/docker-compose.yml up -d
+# Add --profile cloudflare once CLOUDFLARE_TUNNEL_TOKEN is set.
 ```
 
 ## Stopping / restarting
 
 ```bash
-docker compose -f infra/docker-compose.yml down          # stop, keep volumes
-docker compose -f infra/docker-compose.yml down -v       # stop AND delete volumes (destructive)
+docker compose --env-file .env -f infra/docker-compose.yml down          # stop, keep volumes
+docker compose --env-file .env -f infra/docker-compose.yml down -v       # stop AND delete volumes (destructive)
 ```
 
 ## Validating the compose file
 
 ```bash
-docker compose -f infra/docker-compose.yml config -q
+docker compose --env-file .env -f infra/docker-compose.yml config -q
 ```

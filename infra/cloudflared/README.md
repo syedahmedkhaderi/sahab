@@ -25,7 +25,7 @@ opened and no public IP is required on the server (Strategy A — §6 of the spe
 
 6. Start (or restart) the stack:
    ```bash
-   docker compose -f infra/docker-compose.yml up -d cloudflared
+   docker compose --env-file .env -f infra/docker-compose.yml --profile cloudflare up -d cloudflared
    ```
 
 The tunnel will appear as **Healthy** in the dashboard within ~30 seconds.
@@ -33,8 +33,8 @@ The tunnel will appear as **Healthy** in the dashboard within ~30 seconds.
 ## Strategy B fallback
 
 If the tunnel is not yet configured, leave `CLOUDFLARE_TUNNEL_TOKEN` blank.
-The `cloudflared` service will exit immediately (it has no token) and the rest of
-the stack will run normally. Access the platform directly via Traefik on port 80/443
+Do not enable the `cloudflare` Compose profile yet. The rest of
+the stack will run normally without `cloudflared`. Access the platform directly via Traefik on port 80/443
 while on the university network (VPN still required for end users — §6 Strategy B).
 
 ## Optional: Cloudflare Access

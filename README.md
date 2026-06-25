@@ -58,7 +58,8 @@ bash scripts/preflight.sh
 # Build the workspace images (long; downloads CUDA + PyTorch):
 bash scripts/build_images.sh
 # Bring up the full platform:
-docker compose -f infra/docker-compose.yml up -d
+docker compose --env-file .env -f infra/docker-compose.yml up -d
+# Add --profile cloudflare once CLOUDFLARE_TUNNEL_TOKEN is set.
 ```
 
 Open `https://$PUBLIC_HOSTNAME` (Strategy A) or `http://<server-ip>` on the VPN (Strategy B).
