@@ -127,6 +127,7 @@ class JupyterHubClient:
                 return "starting"
             return "stopped"
 
-    def workspace_url(self, username: str) -> str:
+    def workspace_url(self, username: str, public_url: str | None = None) -> str:
         """Return the URL the browser should be redirected to for the workspace."""
-        return f"{self._public_url}/user/{username}/lab"
+        base_url = (public_url or self._public_url).rstrip("/")
+        return f"{base_url}/user/{username}/lab"

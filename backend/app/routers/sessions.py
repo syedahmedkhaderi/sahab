@@ -4,7 +4,7 @@ from __future__ import annotations
 
 from typing import Annotated
 
-from fastapi import APIRouter, Depends, HTTPException, status
+from fastapi import APIRouter, Depends, HTTPException, Request, status
 from redis.asyncio import Redis
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
@@ -131,6 +131,7 @@ async def stop_session(
 @router.get("/{session_id}/connect", response_model=SessionConnectOut)
 async def connect_session(
     session_id: str,
+    request: Request,
     current_user: Annotated[User, Depends(get_current_user)],
     db: AsyncSession = Depends(get_db),
     hub: JupyterHubClient = Depends(get_hub),
@@ -146,5 +147,10 @@ async def connect_session(
         )
 
     username = current_user.email.split("@")[0]
-    url = hub.workspace_url(username)
+    host = request.headers.get("x-forwarded-host") or request.headers.get("host")
+    proto = request.headers.get("x-forwarded-proto") or request.url.scheme
+    if host and host.endswith(".trycloudflare.com"):
+        proto = "https"
+    public_url = f"{proto}://{host}" if host else str(request.base_url).rstrip("/")
+    url = hub.workspace_url(username, public_url=public_url)
     return {"url": url, "session_id": session_id}

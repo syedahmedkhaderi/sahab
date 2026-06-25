@@ -72,7 +72,7 @@ services:
       retries: 5
     labels:
       - "traefik.enable=true"
-      - "traefik.http.routers.backend.rule=(Host(`${PUBLIC_HOSTNAME}`) || Host(`10.125.81.52`) || Host(`localhost`)) && PathPrefix(`/api`)"
+      - "traefik.http.routers.backend.rule=PathPrefix(`/api`)"
       - "traefik.http.routers.backend.entrypoints=websecure"
       - "traefik.http.routers.backend.tls=true"
       - "traefik.http.routers.backend.priority=20"
@@ -122,7 +122,7 @@ services:
       retries: 5
     labels:
       - "traefik.enable=true"
-      - "traefik.http.routers.frontend.rule=Host(`${PUBLIC_HOSTNAME}`) || Host(`10.125.81.52`) || Host(`localhost`)"
+      - "traefik.http.routers.frontend.rule=PathPrefix(`/`)"
       - "traefik.http.routers.frontend.entrypoints=websecure"
       - "traefik.http.routers.frontend.tls=true"
       - "traefik.http.routers.frontend.priority=1"
@@ -167,13 +167,13 @@ services:
     labels:
       - "traefik.enable=true"
       # /hub/* routes (admin UI, API, login, oauth callback)
-      - "traefik.http.routers.hub.rule=(Host(`${PUBLIC_HOSTNAME}`) || Host(`10.125.81.52`) || Host(`localhost`)) && PathPrefix(`/hub`)"
+      - "traefik.http.routers.hub.rule=PathPrefix(`/hub`)"
       - "traefik.http.routers.hub.entrypoints=websecure"
       - "traefik.http.routers.hub.tls=true"
       - "traefik.http.routers.hub.priority=10"
       - "traefik.http.services.hub.loadbalancer.server.port=8000"
       # /user/* routes (spawned user single-user servers)
-      - "traefik.http.routers.hub-user.rule=(Host(`${PUBLIC_HOSTNAME}`) || Host(`10.125.81.52`) || Host(`localhost`)) && PathPrefix(`/user`)"
+      - "traefik.http.routers.hub-user.rule=PathPrefix(`/user`)"
       - "traefik.http.routers.hub-user.entrypoints=websecure"
       - "traefik.http.routers.hub-user.tls=true"
       - "traefik.http.routers.hub-user.priority=10"
