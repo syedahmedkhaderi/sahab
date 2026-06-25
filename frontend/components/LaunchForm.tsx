@@ -35,8 +35,8 @@ export function LaunchForm({ balance }: LaunchFormProps) {
       .then(([imgs, rs]) => {
         setAvailableImages(imgs.filter((i) => i.enabled));
         setAvailableRates(rs);
-        const defaultImg = imgs.find((i) => i.is_default && i.enabled) ?? imgs.find((i) => i.enabled);
-        if (defaultImg) setSelectedImageId(defaultImg.id);
+        // The default image is selected by the effect below, which keeps it in
+        // sync with the chosen runtime (GPU images for GPU sessions, etc.).
       })
       .catch(() => setError("Failed to load catalog data."))
       .finally(() => setLoadingData(false));
@@ -51,12 +51,16 @@ export function LaunchForm({ balance }: LaunchFormProps) {
     selectedResource === "l4_gpu" ? img.kind === "gpu" : img.kind === "cpu"
   );
 
-  // When resource type changes, reset selected image to first valid
+  // Keep the selected image valid for the chosen runtime. Runs when the
+  // runtime changes AND once the image list loads, so a GPU session can never
+  // be left pointing at a CPU image (or vice versa). Prefers the kind's default.
   useEffect(() => {
-    const first = filteredImages[0];
-    if (first) setSelectedImageId(first.id);
-    else setSelectedImageId("");
-  }, [selectedResource]); // eslint-disable-line react-hooks/exhaustive-deps
+    const valid = availableImages.filter((img) =>
+      selectedResource === "l4_gpu" ? img.kind === "gpu" : img.kind === "cpu"
+    );
+    const preferred = valid.find((i) => i.is_default) ?? valid[0];
+    setSelectedImageId(preferred ? preferred.id : "");
+  }, [selectedResource, availableImages]); // eslint-disable-line react-hooks/exhaustive-deps
 
   const creditsPerHour = rateFor(selectedResource);
   const hasEnoughCredits = balance >= creditsPerHour / 60; // at least 1 minute
@@ -72,7 +76,7 @@ export function LaunchForm({ balance }: LaunchFormProps) {
       const session = await sessionsApi.create({
         resource_type: selectedResource,
         image_id: selectedImageId,
-        fallback_cpu: fallbackCpu,
+        cpu_fallback: fallbackCpu,
       });
 
       // Poll until running or queued visible then redirect

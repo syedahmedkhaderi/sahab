@@ -153,7 +153,7 @@ export const me = {
 export interface CreateSessionPayload {
   resource_type: "l4_gpu" | "cpu";
   image_id: string;
-  fallback_cpu?: boolean;
+  cpu_fallback?: boolean;
 }
 
 export const sessions = {

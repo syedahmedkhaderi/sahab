@@ -76,21 +76,36 @@ async def create_session(
             "Stop an existing session first."
         )
 
-    # Resolve default image if none specified
-    if image_id is None and resource_type == ResourceType.l4_gpu:
+    # The image kind must match the resource type: a GPU session needs a GPU
+    # image (CUDA build of PyTorch), a CPU session a CPU image.
+    expected_kind = "gpu" if resource_type == ResourceType.l4_gpu else "cpu"
+
+    if image_id is None:
+        # Resolve the default image for this resource kind.
         result = await db.execute(
-            select(Image).where(Image.kind == "gpu", Image.is_default.is_(True), Image.enabled.is_(True))
+            select(Image).where(
+                Image.kind == expected_kind,
+                Image.is_default.is_(True),
+                Image.enabled.is_(True),
+            )
         )
         img = result.scalar_one_or_none()
         if img:
             image_id = img.id
-    elif image_id is None:
-        result = await db.execute(
-            select(Image).where(Image.kind == "cpu", Image.is_default.is_(True), Image.enabled.is_(True))
-        )
-        img = result.scalar_one_or_none()
-        if img:
-            image_id = img.id
+    else:
+        # Validate an explicitly chosen image: it must exist, be enabled, and
+        # match the resource kind. Guards against a client sending a CPU image
+        # for a GPU session (which would silently run CPU-only PyTorch).
+        result = await db.execute(select(Image).where(Image.id == image_id))
+        chosen = result.scalar_one_or_none()
+        if chosen is None or not chosen.enabled:
+            raise ValueError("Selected environment is not available")
+        chosen_kind = getattr(chosen.kind, "value", chosen.kind)
+        if chosen_kind != expected_kind:
+            raise ValueError(
+                f"Selected environment is a {chosen_kind} image, "
+                f"which cannot run on a {expected_kind} session"
+            )
 
     session = Session(
         user_id=user.id,
