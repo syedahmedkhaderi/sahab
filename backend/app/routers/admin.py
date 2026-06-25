@@ -25,6 +25,7 @@ from app.models import (
     UserStatus,
 )
 from app.schemas import (
+    AdminCreateUserRequest,
     AdminMetrics,
     CreditGrantRequest,
     GpuInventoryCreateRequest,
@@ -86,20 +87,39 @@ async def list_users(
 
 @router.post("/users", response_model=UserOut, status_code=status.HTTP_201_CREATED)
 async def create_user(
-    body: UserUpdateRequest,
+    body: AdminCreateUserRequest,
     admin: Annotated[User, Depends(require_admin)],
     db: AsyncSession = Depends(get_db),
     settings: Settings = Depends(get_settings),
 ) -> User:
     """Admin-created accounts start active regardless of REQUIRE_ADMIN_APPROVAL."""
-    if not body.full_name:
-        raise HTTPException(status_code=400, detail="full_name is required")
-    # Reuse signup logic but skip domain check for admin-created accounts
-    from app.schemas import SignupRequest  # noqa: PLC0415
-    raise HTTPException(
-        status_code=status.HTTP_501_NOT_IMPLEMENTED,
-        detail="Use POST /admin/users with email+password fields. See /auth/signup for self-service.",
+    existing = await db.execute(select(User).where(User.email == body.email.lower()))
+    if existing.scalar_one_or_none() is not None:
+        raise HTTPException(status_code=status.HTTP_409_CONFLICT, detail="Email already registered")
+
+    from app.models import UserRole  # noqa: PLC0415
+    try:
+        role = UserRole(body.role)
+    except ValueError:
+        raise HTTPException(status_code=400, detail=f"Invalid role: {body.role}")
+
+    new_user = User(
+        email=body.email.lower(),
+        full_name=body.full_name,
+        role=role,
+        status=UserStatus.active,
+        password_hash=hash_password(body.password),
+        credit_balance=0,
     )
+    db.add(new_user)
+    await db.flush()
+
+    grant_amount = body.credit_grant if body.credit_grant is not None else settings.default_credit_grant
+    if grant_amount > 0:
+        await credits_svc.grant_credits(db=db, user_id=new_user.id, amount=grant_amount, reason="grant")
+
+    await _audit(db, admin.id, "create_user", target=new_user.id, detail=f"email={new_user.email} role={role}")
+    return new_user
 
 
 @router.patch("/users/{user_id}", response_model=UserOut)

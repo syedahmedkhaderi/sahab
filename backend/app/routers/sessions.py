@@ -13,7 +13,7 @@ from app.config import Settings, get_settings
 from app.db import get_db
 from app.models import Session as SessionModel, SessionState, User
 from app.schemas import SessionConnectOut, SessionCreateRequest, SessionOut
-from app.security import get_current_user
+from app.security import get_current_user, hub_username
 from app.services import sessions as sessions_svc
 from app.services.jupyterhub import JupyterHubClient
 from app.services.scheduler import get_queue_position
@@ -146,7 +146,7 @@ async def connect_session(
             detail=f"Session is not running (state={session.state})",
         )
 
-    username = current_user.email.split("@")[0]
+    username = hub_username(current_user.email)
     host = request.headers.get("x-forwarded-host") or request.headers.get("host")
     proto = request.headers.get("x-forwarded-proto") or request.url.scheme
     if host and host.endswith(".trycloudflare.com"):

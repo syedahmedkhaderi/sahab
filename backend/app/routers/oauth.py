@@ -26,7 +26,7 @@ from app.config import Settings, get_settings
 from app.db import get_db
 from app.models import User, UserStatus
 from app.schemas import OAuthUserInfo
-from app.security import create_access_token, decode_access_token, get_current_user
+from app.security import create_access_token, decode_access_token, get_current_user, hub_username
 
 router = APIRouter(prefix="/oauth", tags=["oauth"])
 
@@ -122,6 +122,7 @@ async def userinfo(
     """Return OIDC-style user claims for the token holder."""
     return OAuthUserInfo(
         sub=current_user.id,
+        preferred_username=hub_username(current_user.email),
         email=current_user.email,
         name=current_user.full_name,
         role=current_user.role,

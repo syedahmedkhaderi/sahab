@@ -47,6 +47,14 @@ class UserUpdateRequest(BaseModel):
     status: str | None = None
 
 
+class AdminCreateUserRequest(BaseModel):
+    email: EmailStr
+    full_name: str = Field(..., min_length=1, max_length=256)
+    password: str = Field(..., min_length=8, max_length=128)
+    role: str = "student"
+    credit_grant: float | None = None
+
+
 # ---------------------------------------------------------------------------
 # Images
 # ---------------------------------------------------------------------------
@@ -200,6 +208,7 @@ class AdminMetrics(BaseModel):
 
 class OAuthUserInfo(BaseModel):
     sub: str
+    preferred_username: str
     email: str
     name: str | None
     role: str

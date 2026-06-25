@@ -24,7 +24,6 @@ export default function SessionConnectPage() {
 
   const [session, setSession] = useState<Session | null>(null);
   const [error, setError] = useState<string | null>(null);
-  const [polls, setPolls] = useState(0);
   const [redirecting, setRedirecting] = useState(false);
 
   const fetchSession = useCallback(async () => {
@@ -44,13 +43,16 @@ export default function SessionConnectPage() {
   useEffect(() => {
     let cancelled = false;
     let timer: ReturnType<typeof setTimeout>;
+    // Local counter — the recursive poll closure can't see the React state
+    // value (it would be captured at 0), so the timeout guard must use this.
+    let count = 0;
 
     const poll = async () => {
       if (cancelled) return;
       const s = await fetchSession();
       if (!s || cancelled) return;
 
-      setPolls((p) => p + 1);
+      count += 1;
 
       if (s.state === READY_STATE) {
         // Try to get workspace URL
@@ -71,7 +73,7 @@ export default function SessionConnectPage() {
         return; // stop polling
       }
 
-      if (polls >= MAX_POLLS) {
+      if (count >= MAX_POLLS) {
         setError("Session is taking too long to start. Please check the dashboard.");
         return;
       }

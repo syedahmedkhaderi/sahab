@@ -16,6 +16,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from app.config import Settings, get_settings
 from app.models import Image, Rate, ResourceType, Session, SessionState, User, UserStatus
 from app.services import credits as credits_svc
+from app.security import hub_username
 from app.services import scheduler as scheduler_svc
 from app.services.jupyterhub import JupyterHubClient
 
@@ -185,7 +186,7 @@ async def _start_hub_server(
         if img:
             image_ref = img.docker_ref
 
-    username = user.email.split("@")[0]  # JupyterHub username derived from email
+    username = hub_username(user.email)  # JupyterHub username derived from email
 
     try:
         await hub.ensure_user(username)
@@ -228,7 +229,7 @@ async def stop_session(
 
     user_result = await db.execute(select(User).where(User.id == session.user_id))
     user = user_result.scalar_one_or_none()
-    username = user.email.split("@")[0] if user else session.user_id
+    username = hub_username(user.email) if user else session.user_id
 
     try:
         await hub.stop_server(username)

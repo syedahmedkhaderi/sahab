@@ -72,6 +72,18 @@ def is_allowed_domain(email: str, settings: Settings) -> bool:
     return domain in settings.allowed_domains_list
 
 
+def hub_username(email: str) -> str:
+    """Derive the JupyterHub username from an email.
+
+    This MUST be the single source of truth: the control plane spawns the
+    user's server under this name, and the OAuth userinfo endpoint returns the
+    same value as ``preferred_username`` (the hub's ``username_claim``). If the
+    two ever diverge, the browser authenticates as a different hub user than
+    the one whose server was started, and the workspace handoff 403s.
+    """
+    return email.split("@", 1)[0].lower()
+
+
 # ---------------------------------------------------------------------------
 # FastAPI dependencies
 # ---------------------------------------------------------------------------

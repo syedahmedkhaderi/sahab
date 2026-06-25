@@ -156,19 +156,26 @@ else:
 
     c.JupyterHub.authenticator_class = GenericOAuthenticator
 
-    _api_base = os.environ.get("API_BASE_URL", "http://backend:8000")
+    # Two distinct base URLs are required:
+    #   - internal: hub -> backend, server-to-server over the Docker network.
+    #   - public:   browser redirects the user must be able to resolve.
+    # authorize_url is a BROWSER redirect, so it MUST be the public URL.
+    # token_url / userdata_url are server-to-server, so they use the internal URL.
+    _api_internal = os.environ.get("API_BASE_URL", "http://backend:8000").rstrip("/")
+    _public_host = os.environ.get("PUBLIC_HOSTNAME", "localhost")
+    _api_public = f"https://{_public_host}"
 
     c.GenericOAuthenticator.client_id = os.environ.get("OAUTH_CLIENT_ID", "jupyterhub")
     c.GenericOAuthenticator.client_secret = os.environ.get("OAUTH_CLIENT_SECRET", "")
-    c.GenericOAuthenticator.oauth_callback_url = (
-        f"https://{os.environ.get('PUBLIC_HOSTNAME', 'localhost')}/hub/oauth_callback"
-    )
-    c.GenericOAuthenticator.authorize_url = f"{_api_base}/api/oauth/authorize"
-    c.GenericOAuthenticator.token_url = f"{_api_base}/api/oauth/token"
-    c.GenericOAuthenticator.userdata_url = f"{_api_base}/api/oauth/userinfo"
+    c.GenericOAuthenticator.oauth_callback_url = f"{_api_public}/hub/oauth_callback"
+    c.GenericOAuthenticator.authorize_url = f"{_api_public}/api/oauth/authorize"
+    c.GenericOAuthenticator.token_url = f"{_api_internal}/api/oauth/token"
+    c.GenericOAuthenticator.userdata_url = f"{_api_internal}/api/oauth/userinfo"
 
-    # Map the "sub" field in the userinfo JSON to the JupyterHub username.
-    c.GenericOAuthenticator.username_claim = "sub"
+    # The JupyterHub username must match the username the control plane spawns
+    # servers under (email local-part). userinfo returns it as preferred_username;
+    # "sub" stays the stable user UUID. Mismatching these breaks the handoff.
+    c.GenericOAuthenticator.username_claim = "preferred_username"
     c.GenericOAuthenticator.login_service = "Sahab"
     c.GenericOAuthenticator.allow_all = True  # access control is in FastAPI
 
