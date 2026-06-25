@@ -10,9 +10,8 @@ export function middleware(request: NextRequest) {
   const { pathname } = request.nextUrl;
 
   // Best-effort: check for the session cookie set by FastAPI on login.
-  // The cookie name must match what the backend sets (adjust if different).
-  const hasSession =
-    request.cookies.has("session") || request.cookies.has("access_token");
+  // Must match the cookie name the backend sets (see make_session_cookie_kwargs).
+  const hasSession = request.cookies.has("session_token");
 
   const isAuthedRoute = AUTHED_PREFIXES.some((prefix) =>
     pathname.startsWith(prefix)
