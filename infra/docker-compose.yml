@@ -216,7 +216,31 @@ services:
     image: cloudflare/cloudflared:latest
     profiles: ["cloudflare"]
     restart: unless-stopped
-    command: tunnel --no-autoupdate run --token ${CLOUDFLARE_TUNNEL_TOKEN}
+    # --protocol http2: host blocks QUIC (UDP/7844); fall back to TCP/HTTP2 which passes.
+    command: tunnel --no-autoupdate --protocol http2 run --token ${CLOUDFLARE_TUNNEL_TOKEN}
+    depends_on:
+      - traefik
+    networks:
+      - sahab-network
+    labels:
+      - "traefik.enable=false"
+
+  # ---------------------------------------------------------------------------
+  # Cloudflare *quick* tunnel — zero-config public exposure (no domain/account).
+  # Used by scripts/bootstrap.sh when no CLOUDFLARE_TUNNEL_TOKEN is provided.
+  # Cloudflare assigns a random https://<words>.trycloudflare.com URL (rotates on
+  # restart); bootstrap parses it from the logs and writes it into PUBLIC_HOSTNAME
+  # before starting the OAuth-dependent services. Mutually exclusive with the
+  # token-based 'cloudflared' service above — pick one profile, not both.
+  # ---------------------------------------------------------------------------
+  cloudflared-quick:
+    image: cloudflare/cloudflared:latest
+    profiles: ["cloudflare-quick"]
+    restart: unless-stopped
+    # https://traefik:443 + --no-tls-verify: Traefik serves its own self-signed
+    # cert internally; Cloudflare terminates the real edge TLS. --protocol http2
+    # because this host blocks QUIC (UDP/7844).
+    command: tunnel --no-autoupdate --protocol http2 --url https://traefik:443 --no-tls-verify
     depends_on:
       - traefik
     networks:

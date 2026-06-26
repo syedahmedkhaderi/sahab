@@ -232,14 +232,22 @@ export default function LandingPage() {
       </main>
 
       <footer className="border-t border-border px-4 py-8 sm:px-6 lg:px-8">
-        <div className="mx-auto flex max-w-7xl items-center justify-between">
+        <div className="mx-auto flex max-w-7xl flex-col items-center justify-between gap-3 sm:flex-row">
           <div className="flex items-center gap-2 text-muted-foreground">
             <Server className="h-4 w-4" />
             <span className="text-sm">{siteName}</span>
           </div>
-          <p className="text-xs text-muted-foreground">
-            University GPU Compute Platform
-          </p>
+          <div className="flex items-center gap-4">
+            <a
+              href="https://github.com/syedahmedkhaderi/sahab"
+              target="_blank"
+              rel="noreferrer"
+              className="text-xs text-muted-foreground underline-offset-4 hover:text-foreground hover:underline"
+            >
+              Open source — deploy your own in one command
+            </a>
+            <p className="text-xs text-muted-foreground">University GPU Compute Platform</p>
+          </div>
         </div>
       </footer>
     </div>

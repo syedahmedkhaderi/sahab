@@ -49,6 +49,34 @@ sahab/
 - **Phase 5** — Payments (deferred until a legal merchant exists). Admin-granted credits until then.
 - **Phase 6** — Polish + k3s scale path.
 
+## One-command deploy (any GPU server)
+
+Turn a fresh university GPU VM into a fully working, publicly-reachable Sahab in a
+single command. No domain, no Cloudflare account, no manual `.env` editing:
+
+```bash
+curl -fsSL https://raw.githubusercontent.com/syedahmedkhaderi/sahab/main/scripts/bootstrap.sh | bash
+```
+
+`scripts/bootstrap.sh` installs Docker + the NVIDIA Container Toolkit (if missing),
+clones this repo to `~/sahab`, generates all secrets into `.env`, runs the Phase 0
+preflight, builds + smoke-tests the workspace images, then exposes the platform via a
+**zero-config Cloudflare quick tunnel** and prints the public `https://…trycloudflare.com`
+URL plus the seeded admin login. It is **idempotent** — re-run it any time to update the
+repo and re-publish.
+
+Quick-tunnel URLs rotate on restart. For a **permanent** URL, register a domain on
+Cloudflare, create a named tunnel (Public Hostname → `HTTPS` → `traefik:443`, *No TLS
+Verify* ON), then pass its token + hostname:
+
+```bash
+curl -fsSL https://raw.githubusercontent.com/syedahmedkhaderi/sahab/main/scripts/bootstrap.sh \
+  | bash -s -- --token eyJ... --hostname sahab.yourdomain.com
+```
+
+Useful flags: `--no-tunnel` (LAN-only), `--skip-build` (reuse images), `--dir <path>`,
+`--admin-email <email>`, `--signup-domains <csv>`. Run with `--help` for the full list.
+
 ## Quick start (development)
 
 ```bash
