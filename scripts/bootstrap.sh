@@ -43,7 +43,11 @@ SAHAB_SKIP_PREFLIGHT="${SAHAB_SKIP_PREFLIGHT:-0}"
 BOOTSTRAP_ADMIN_EMAIL_OVERRIDE="${BOOTSTRAP_ADMIN_EMAIL:-}"
 ALLOWED_SIGNUP_DOMAINS_OVERRIDE="${ALLOWED_SIGNUP_DOMAINS:-}"
 
-# ----------------------------------------------------------------------------- logging
+# ----------------------------------------------------------------------------- shared helpers
+# Logging, .env editing, the compose wrapper and the tunnel logic all live in
+# scripts/lib/tunnel.sh so that bootstrap and scripts/tunnel.sh publish a URL
+# exactly the same way. When run via `curl | bash` the repo is not on disk yet,
+# so the library is sourced after the clone (see load_shared_lib below).
 if [[ -t 1 ]]; then
   B=$'\033[1m'; G=$'\033[0;32m'; Y=$'\033[0;33m'; R=$'\033[0;31m'; C=$'\033[0;36m'; N=$'\033[0m'
 else
@@ -53,6 +57,13 @@ step() { printf "\n%s==>%s %s%s%s\n" "$C" "$N" "$B" "$1" "$N"; }
 ok()   { printf "%s[ ok ]%s %s\n" "$G" "$N" "$1"; }
 warn() { printf "%s[warn]%s %s\n" "$Y" "$N" "$1"; }
 die()  { printf "%s[fail]%s %s\n" "$R" "$N" "$1" >&2; exit 1; }
+
+# Replaces the definitions above (and set_env/get_env/dc below) with the shared
+# ones, once the repo is present.
+load_shared_lib() {
+  # shellcheck source=lib/tunnel.sh
+  source "$SAHAB_DIR/scripts/lib/tunnel.sh"
+}
 
 usage() { sed -n '2,/^set -euo/p' "$0" | sed 's/^# \{0,1\}//; s/^#$//' | sed '$d'; exit 0; }
 
@@ -90,17 +101,9 @@ need_root() {
   fi
 }
 
-# Update KEY=VALUE in $ENV_FILE (append if absent). Values must not contain '|' or '&'.
+# set_env / get_env / dc / publish_quick_tunnel come from scripts/lib/tunnel.sh,
+# sourced by load_shared_lib once the repo is on disk.
 ENV_FILE=""
-set_env() {
-  local key="$1" val="$2"
-  if grep -qE "^${key}=" "$ENV_FILE"; then
-    sed -i -E "s|^${key}=.*|${key}=${val}|" "$ENV_FILE"
-  else
-    printf '%s=%s\n' "$key" "$val" >>"$ENV_FILE"
-  fi
-}
-get_env() { grep -E "^$1=" "$ENV_FILE" | head -n1 | cut -d= -f2- || true; }
 
 # Generate a strong secret into KEY only if it's empty or still a placeholder.
 gen_secret() {
@@ -191,6 +194,8 @@ clone_or_update() {
 generate_env() {
   step "Generating configuration (.env)"
   ENV_FILE="$SAHAB_DIR/.env"
+  # The repo is on disk by now, so switch to the shared helpers.
+  load_shared_lib
   if [[ ! -f "$ENV_FILE" ]]; then
     cp "$SAHAB_DIR/.env.example" "$ENV_FILE"
     ok "created .env from .env.example"
@@ -245,7 +250,7 @@ build_images() {
 }
 
 # ----------------------------------------------------------------------------- compose wrapper
-dc() { docker compose -f "$SAHAB_DIR/infra/docker-compose.yml" --env-file "$SAHAB_DIR/.env" "$@"; }
+# dc() is defined in scripts/lib/tunnel.sh.
 
 # Bring up only the core data/proxy plane (needed before the tunnel handoff).
 up_core() { dc up -d postgres redis traefik; }
@@ -259,31 +264,17 @@ up_all() {
 
 # ----------------------------------------------------------------------------- 6. expose + handoff
 quick_tunnel_handoff() {
-  step "Starting zero-config Cloudflare quick tunnel"
   up_core
-  dc --profile cloudflare-quick up -d cloudflared-quick
-
-  step "Waiting for Cloudflare to assign a public URL"
-  local url=""
-  for _ in $(seq 1 60); do
-    url="$(dc logs cloudflared-quick 2>&1 | grep -oE 'https://[a-z0-9-]+\.trycloudflare\.com' | tail -n1 || true)"
-    [[ -n "$url" ]] && break
-    sleep 2
-  done
-  [[ -z "$url" ]] && die "Quick tunnel did not produce a URL in time. Check: dc logs cloudflared-quick"
-
-  PUBLIC_HOSTNAME="${url#https://}"
-  set_env PUBLIC_HOSTNAME "$PUBLIC_HOSTNAME"
-  ok "public URL assigned: $url"
-  warn "Quick-tunnel URLs rotate on restart. Re-run this script to re-publish, or use a named tunnel (--token/--hostname) for a permanent URL."
+  publish_quick_tunnel   # shared with scripts/tunnel.sh
 }
 
 expose() {
   if [[ "$SAHAB_NO_TUNNEL" == "1" ]]; then
     step "Exposure: LAN-only (--no-tunnel)"
-    [[ -z "$(get_env PUBLIC_HOSTNAME)" || "$(get_env PUBLIC_HOSTNAME)" == *example* ]] && set_env PUBLIC_HOSTNAME "localhost"
+    [[ -z "$(get_env PUBLIC_HOSTNAME)" || "$(get_env PUBLIC_HOSTNAME)" == *example* ]] && set_public_hostname "localhost"
   elif [[ -n "$CLOUDFLARE_TUNNEL_TOKEN" ]]; then
     step "Exposure: named Cloudflare tunnel -> https://$PUBLIC_HOSTNAME"
+    set_public_hostname "$PUBLIC_HOSTNAME"
     ok "using token; PUBLIC_HOSTNAME=$PUBLIC_HOSTNAME"
   else
     quick_tunnel_handoff
@@ -295,18 +286,9 @@ expose() {
 wait_healthy() {
   step "Bringing up the full stack and waiting for health"
   up_all
-  local svc state all_ok
-  local services=(postgres redis traefik backend frontend jupyterhub)
-  for _ in $(seq 1 60); do
-    all_ok=1
-    for svc in "${services[@]}"; do
-      state="$(dc ps --format '{{.Service}} {{.Status}}' 2>/dev/null | grep -E "^${svc} " || true)"
-      [[ "$state" == *healthy* || ( "$svc" == traefik && "$state" == *Up* ) ]] || all_ok=0
-    done
-    [[ "$all_ok" == 1 ]] && break
-    sleep 5
-  done
-  if [[ "${all_ok:-0}" == 1 ]]; then ok "core services healthy"; else
+  if wait_for_health postgres redis traefik backend frontend jupyterhub; then
+    ok "core services healthy"
+  else
     warn "Not all services reported healthy in time. Inspect with: dc ps  /  dc logs <service>"
   fi
 }

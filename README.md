@@ -77,6 +77,25 @@ curl -fsSL https://raw.githubusercontent.com/syedahmedkhaderi/sahab/main/scripts
 Useful flags: `--no-tunnel` (LAN-only), `--skip-build` (reuse images), `--dir <path>`,
 `--admin-email <email>`, `--signup-domains <csv>`. Run with `--help` for the full list.
 
+### Getting a new public link
+
+Quick-tunnel URLs rotate whenever the tunnel restarts. To publish a fresh one
+without re-running the whole bootstrap:
+
+```bash
+cd ~/sahab && ./scripts/tunnel.sh
+```
+
+It starts a new tunnel, writes the hostname into **both** `PUBLIC_HOSTNAME` and
+`JUPYTERHUB_PUBLIC_URL` (they must always match — setting only the first is silent,
+and leaves the workspace handoff pointing at a tunnel that no longer exists),
+restarts the services that bake the hostname in, checks the URL actually answers,
+and prints it with the admin login.
+
+For the permanent-domain path, `./scripts/tunnel.sh --named <TOKEN> <HOSTNAME>`
+does the same thing with a named tunnel. Both share one implementation with
+`bootstrap.sh` (`scripts/lib/tunnel.sh`), so the two paths cannot drift.
+
 ## Quick start (development)
 
 ```bash
