@@ -37,6 +37,26 @@ c.JupyterHub.cookie_secret_file = "/srv/jupyterhub/jupyterhub_cookie_secret"
 c.JupyterHub.authenticate_prometheus = False
 
 # ---------------------------------------------------------------------------
+# Embedding: let the Sahab workspace shell frame the hub's pages.
+#
+# JupyterHub 4.1 changed the default CSP from `frame-ancestors 'self'` to
+# `'none'` (see jupyterhub/handlers/base.py::content_security_policy, whose
+# docstring notes it can be overridden through settings['headers']).
+#
+# Sahab's app, API, hub and single-user servers are all on one origin, and
+# /sessions/<id>/workspace embeds the workspace there so the user has a way
+# back out, a stop button and their credit usage. The hub's own pages appear in
+# that frame during the OAuth handoff, so the hub needs the same policy the
+# single-user servers get in images/*/jupyter_server_config.py.
+#
+# 'self' is the narrowest policy that allows it: same-origin pages only, so an
+# attacker would already need to control a page on this domain.
+# ---------------------------------------------------------------------------
+c.JupyterHub.tornado_settings = {
+    "headers": {"Content-Security-Policy": "frame-ancestors 'self'"}
+}
+
+# ---------------------------------------------------------------------------
 # DockerSpawner
 # ---------------------------------------------------------------------------
 c.JupyterHub.spawner_class = "dockerspawner.DockerSpawner"
@@ -192,6 +212,11 @@ else:
     c.GenericOAuthenticator.username_claim = "preferred_username"
     c.GenericOAuthenticator.login_service = "Sahab"
     c.GenericOAuthenticator.allow_all = True  # access control is in FastAPI
+
+    # Sahab is the only way in, so the hub's login page offers exactly one
+    # button. Skipping it removes a click, and removes the one hub page that
+    # would otherwise render inside the workspace shell's iframe mid-handoff.
+    c.Authenticator.auto_login = True
 
 # ---------------------------------------------------------------------------
 # Service API token (used by the control plane to call JupyterHub's REST API)

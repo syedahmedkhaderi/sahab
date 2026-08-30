@@ -1,0 +1,153 @@
+/* =========================================================================
+   Sahab workspace styling for JupyterLab 4.2.
+   Served from /home/jovyan/.jupyter/custom/custom.css (LabApp.custom_css).
+
+   Written against JupyterLab 4.2.5. Almost everything here sets a --jp-*
+   variable, which is a public, documented API and survives upgrades. The few
+   rules that target .jp-* class names are marked, and are the first thing to
+   check if a Lab upgrade looks wrong.
+
+   Nothing here hides UI. No toolbar, menu or panel is display:none, because a
+   user cannot undo that from the Settings editor.
+   ========================================================================= */
+
+:root {
+  /* --- Sahab blue, so the frame and its contents belong together --------- */
+  --jp-brand-color0: #00459a;
+  --jp-brand-color1: #0055b8;
+  --jp-brand-color2: #4d8ad0;
+  --jp-brand-color3: #b3cdea;
+  --jp-accent-color1: #17795e;
+
+  /* --- Surfaces: near-white, warmed very slightly to match the Sahab shell
+         rather than the cool grey Lab ships with. ------------------------- */
+  --jp-layout-color0: #ffffff;
+  --jp-layout-color1: #ffffff;
+  --jp-layout-color2: #f7f7f6;
+  --jp-layout-color3: #efeeec;
+  --jp-layout-color4: #d9d8d6;
+
+  --jp-border-color0: #cfcecb;
+  --jp-border-color1: #d9d8d6;
+  --jp-border-color2: #e4e3e0;
+  --jp-border-color3: #efeeec;
+  --jp-border-width: 1px;
+
+  --jp-ui-font-color0: #1f1f1f;
+  --jp-ui-font-color1: #343434;
+  --jp-ui-font-color2: #767676;
+  --jp-ui-font-color3: #9a9a9a;
+
+  --jp-content-font-color0: #1f1f1f;
+  --jp-content-font-color1: #343434;
+
+  /* --- Cells ------------------------------------------------------------- */
+  --jp-cell-editor-background: #f7f7f6;
+  --jp-cell-editor-border-color: #e4e3e0;
+  --jp-cell-editor-active-background: #ffffff;
+  --jp-cell-editor-active-border-color: #0055b8;
+  --jp-cell-prompt-width: 68px;
+  --jp-cell-prompt-font-family: "JetBrains Mono", ui-monospace, SFMono-Regular,
+    Menlo, monospace;
+  --jp-cell-prompt-not-active-opacity: 0.55;
+  --jp-cell-padding: 6px;
+
+  --jp-notebook-padding: 16px;
+  --jp-code-padding: 10px;
+  --jp-code-line-height: 1.5;
+
+  --jp-toolbar-header-margin: 4px 8px;
+  --jp-toolbar-active-background: #efeeec;
+  --jp-toolbar-border-color: #d9d8d6;
+
+  --jp-input-active-border-color: #0055b8;
+  --jp-input-hover-background: #f7f7f6;
+
+  --jp-warn-color1: #b26b00;
+  --jp-error-color1: #b42318;
+  --jp-success-color1: #17795e;
+}
+
+/* -------------------------------------------------------------------------
+   Cells as cards.
+
+   The single most Colab-like part of this file: give each cell a rounded,
+   inset editor with a visible active state, and let the cells breathe.
+   Targets .jp-* class names, so check these first after a Lab upgrade.
+   ------------------------------------------------------------------------- */
+.jp-Notebook .jp-Cell {
+  padding: 6px 12px;
+}
+
+.jp-Notebook .jp-CodeCell .jp-InputArea-editor,
+.jp-Notebook .jp-MarkdownCell .jp-InputArea-editor {
+  border-radius: 8px;
+  border: 1px solid var(--jp-cell-editor-border-color);
+  transition: border-color 120ms ease-out, background-color 120ms ease-out;
+}
+
+/* The active cell reads as active without a heavy left bar. */
+.jp-Notebook .jp-Cell.jp-mod-active .jp-InputArea-editor {
+  background: var(--jp-cell-editor-active-background);
+  border-color: var(--jp-cell-editor-active-border-color);
+  box-shadow: 0 1px 3px hsl(0 0% 0% / 0.06);
+}
+
+/* Lab marks the active cell with a coloured strip in the collapser gutter to
+   the left. Keep it (it is the only persistent "you are here" cue in the
+   notebook) but round the ends so it reads as a deliberate marker rather than
+   a border, and keep the cell's own background flat. */
+.jp-Notebook .jp-Cell.jp-mod-selected {
+  background: transparent;
+}
+
+.jp-Notebook .jp-Cell .jp-Collapser {
+  border-radius: 3px;
+}
+
+/* Output sits under its cell rather than floating away from it. */
+.jp-Notebook .jp-OutputArea {
+  margin-top: 2px;
+}
+
+/* Rounded, quieter toolbars and a softer notebook ground. */
+.jp-Toolbar {
+  border-bottom: 1px solid var(--jp-toolbar-border-color);
+}
+
+.jp-Notebook {
+  background: var(--jp-layout-color2);
+}
+
+.jp-Notebook .jp-Cell {
+  background: transparent;
+}
+
+.jp-NotebookPanel .jp-Notebook {
+  padding-top: 8px;
+}
+
+/* -------------------------------------------------------------------------
+   Focus rings, selection and scrollbars: the surfaces nobody draws, which
+   otherwise ship as browser defaults belonging to no design system.
+   ------------------------------------------------------------------------- */
+::selection {
+  background-color: rgba(0, 85, 184, 0.18);
+}
+
+.jp-Notebook *:focus-visible,
+.jp-Toolbar *:focus-visible {
+  outline: 2px solid var(--jp-brand-color1);
+  outline-offset: 1px;
+}
+
+/* Rounded launcher cards, matching the Sahab shell's radius. */
+.jp-LauncherCard {
+  border-radius: 8px;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .jp-Notebook .jp-InputArea-editor {
+    transition: none;
+  }
+}

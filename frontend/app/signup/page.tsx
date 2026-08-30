@@ -69,8 +69,8 @@ export default function SignupPage() {
         <div className="space-y-4 text-sm text-muted-foreground">
           <p>
             A platform administrator reviews new accounts by hand and grants the
-            credits that go with them. There is no confirmation email — nothing
-            will arrive in your inbox, so there is nothing to look for.
+            credits that go with them. There is no confirmation email. Nothing
+            will arrive in your inbox, so there is nothing to wait for.
           </p>
           <p>
             If you need access for a class or a deadline, tell the administrator

@@ -1,13 +1,18 @@
 import * as React from "react";
 import { cn } from "@/lib/utils";
 
-const siteName = process.env.NEXT_PUBLIC_SITE_NAME ?? "Sahab";
-
 /**
- * Sahab's mark. Two stacked bars in the UDST blue: the two L4s this platform
- * actually has. Drawn rather than borrowed — there is no UDST logo asset in the
- * repository, and Sahab presents as its own product in the university's colours
- * rather than as an official university system.
+ * The Sahab lockup: a white cloud and the wordmark on a UDST-blue block.
+ *
+ * The word SAHAB lives inside the graphic, so there is deliberately no adjacent
+ * HTML wordmark — rendering both would show the name twice. That also means the
+ * <svg> carries the accessible name, since there is no longer any text beside
+ * it to name the link that usually wraps this.
+ *
+ * The <text> element sets no font-family on purpose. Inline SVG inherits it
+ * through the normal CSS cascade, so it picks up Inter from `body.font-sans`.
+ * Naming "Inter" explicitly would silently fall back to Helvetica, because
+ * next/font generates a hashed family name rather than that literal string.
  */
 export function Wordmark({
   className,
@@ -17,44 +22,45 @@ export function Wordmark({
   showSubtitle?: boolean;
 }) {
   return (
-    <span className={cn("flex items-center gap-2.5", className)}>
+    <span className={cn("flex flex-col", className)}>
       <svg
-        viewBox="0 0 20 20"
-        aria-hidden="true"
-        className="h-5 w-5 shrink-0 text-primary"
-        fill="none"
+        viewBox="0 0 500 200"
+        role="img"
+        aria-label="Sahab"
+        className="h-7 w-[70px] shrink-0"
       >
-        <rect
-          x="1.5"
-          y="3.5"
-          width="17"
-          height="5.5"
-          rx="1.5"
-          stroke="currentColor"
-          strokeWidth="1.75"
-        />
-        <rect
-          x="1.5"
-          y="11"
-          width="17"
-          height="5.5"
-          rx="1.5"
-          stroke="currentColor"
-          strokeWidth="1.75"
-        />
-        <circle cx="5.25" cy="6.25" r="1" fill="currentColor" />
-        <circle cx="5.25" cy="13.75" r="1" fill="currentColor" />
+        {/* Literal blue, not the --primary token: this block is a fixed brand
+            asset and must read the same in both themes. It is a hair off the
+            token's #0055B8, which is imperceptible and not worth shifting every
+            button, ring and link in the product to reconcile. */}
+        <rect width="500" height="200" rx="16" fill="#0558b6" />
+        <g transform="translate(70, 50)">
+          <path
+            d="M 45 90
+               A 25 25 0 0 1 50 45
+               A 35 35 0 0 1 115 35
+               A 25 25 0 0 1 150 55
+               A 20 20 0 0 1 150 90
+               Z"
+            fill="#ffffff"
+          />
+        </g>
+        <text
+          x="245"
+          y="125"
+          fontSize="58"
+          fontWeight="800"
+          letterSpacing="3"
+          fill="#ffffff"
+        >
+          SAHAB
+        </text>
       </svg>
-      <span className="flex flex-col leading-none">
-        <span className="text-[0.9375rem] font-semibold tracking-tight text-foreground">
-          {siteName}
+      {showSubtitle && (
+        <span className="mt-2 text-xs text-muted-foreground">
+          University of Doha for Science and Technology
         </span>
-        {showSubtitle && (
-          <span className="mt-1 text-xs text-muted-foreground">
-            University of Doha for Science and Technology
-          </span>
-        )}
-      </span>
+      )}
     </span>
   );
 }

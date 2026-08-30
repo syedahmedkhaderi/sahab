@@ -1,0 +1,14 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" width="24" height="24"
+     fill="none" stroke="#0055b8" stroke-width="2"
+     stroke-linecap="round" stroke-linejoin="round">
+  <!--
+    Launcher tile icon for the code-server entry.
+
+    Deliberately a generic code glyph rather than the Visual Studio Code logo:
+    that mark is Microsoft's, and this is not their build. jupyter-server-proxy
+    4.3.0 ships no icons of its own, so without this the tile renders as a
+    broken image.
+  -->
+  <polyline points="8 6 3 12 8 18"/>
+  <polyline points="16 6 21 12 16 18"/>
+</svg>

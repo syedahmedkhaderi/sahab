@@ -102,35 +102,53 @@ async def _resolve_token(
     return session_token
 
 
-async def get_current_user(
+async def get_current_user_optional(
     token: Annotated[str | None, Depends(_resolve_token)],
     db: AsyncSession = Depends(get_db),
     settings: Settings = Depends(get_settings),
-) -> User:
-    """FastAPI dependency: return the authenticated User or raise 401."""
-    credentials_error = HTTPException(
-        status_code=status.HTTP_401_UNAUTHORIZED,
-        detail="Not authenticated",
-        headers={"WWW-Authenticate": "Bearer"},
-    )
+) -> User | None:
+    """
+    Resolve the caller, returning None when there is no usable session.
+
+    Exists for the browser-facing OAuth authorize endpoint, which needs to send
+    a signed-out visitor to the login page rather than answer a top-level
+    navigation with a 401 JSON body.
+
+    An inactive or disabled account still raises 403. That is a decision about
+    the account rather than a missing sign-in, and bouncing it to /login would
+    loop: the user can sign in perfectly well, and would land right back here.
+    """
     if not token:
-        raise credentials_error
+        return None
     try:
         payload = decode_access_token(token, settings)
         user_id: str = payload.get("sub", "")
         if not user_id:
-            raise credentials_error
+            return None
     except JWTError:
-        raise credentials_error
+        return None
 
     result = await db.execute(select(User).where(User.id == user_id))
     user = result.scalar_one_or_none()
     if user is None:
-        raise credentials_error
+        return None
     if user.status != UserStatus.active:
         raise HTTPException(
             status_code=status.HTTP_403_FORBIDDEN,
             detail=f"Account is {user.status}",
+        )
+    return user
+
+
+async def get_current_user(
+    user: Annotated[User | None, Depends(get_current_user_optional)],
+) -> User:
+    """FastAPI dependency: return the authenticated User or raise 401."""
+    if user is None:
+        raise HTTPException(
+            status_code=status.HTTP_401_UNAUTHORIZED,
+            detail="Not authenticated",
+            headers={"WWW-Authenticate": "Bearer"},
         )
     return user
 

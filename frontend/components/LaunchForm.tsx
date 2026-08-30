@@ -108,7 +108,7 @@ export function LaunchForm({ balance }: LaunchFormProps) {
       <fieldset>
         <legend className="text-sm font-medium text-foreground">Hardware</legend>
         <p className="mt-1 text-sm text-muted-foreground">
-          You do not pick a specific GPU — Sahab assigns one that is free.
+          Sahab assigns a free GPU for you.
         </p>
 
         <div className="mt-3 grid gap-2 sm:grid-cols-2">

@@ -15,8 +15,9 @@ import { ApiClientError } from "@/lib/api";
 function LoginForm() {
   const router = useRouter();
   const searchParams = useSearchParams();
-  // Middleware appends ?from= when it bounces someone off a protected page, so
-  // they land back where they were going rather than on the dashboard.
+  // ?from= is appended both by the middleware, when it bounces someone off a
+  // protected page, and by /api/oauth/authorize when the hub handoff finds no
+  // session. Either way the user resumes where they were going.
   const from = searchParams.get("from");
 
   const [email, setEmail] = useState("");
@@ -31,7 +32,14 @@ function LoginForm() {
 
     try {
       await auth.login({ email, password });
-      router.push(from && from.startsWith("/") ? from : "/dashboard");
+      const target = from && from.startsWith("/") ? from : "/dashboard";
+      if (target.startsWith("/api/")) {
+        // An API route, not a Next page: the OAuth handoff resuming. The Next
+        // router cannot resolve it, so this has to be a real navigation.
+        window.location.assign(target);
+      } else {
+        router.push(target);
+      }
     } catch (err) {
       if (err instanceof ApiClientError) {
         setError(err.detail);

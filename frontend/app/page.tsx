@@ -18,19 +18,19 @@ const HARDWARE = [
 const STEPS = [
   {
     title: "Sign in with your UDST email",
-    body: "Accounts are approved by the platform administrator before the first launch. Only udst.edu.qa addresses can register.",
+    body: "Only udst.edu.qa addresses can register, and an administrator approves each account before its first launch.",
   },
   {
     title: "Ask for a GPU workspace",
-    body: "You choose whether you need a GPU and which environment to run. You do not choose which GPU — the scheduler assigns one that is genuinely free, and tells you plainly when there is none.",
+    body: "You pick GPU or CPU and an environment. Sahab picks the GPU, assigning one that is actually free.",
   },
   {
     title: "Work in the browser",
-    body: "JupyterLab opens with CUDA available. VS Code runs in the same container if you prefer it. Your files stay in place when the session ends.",
+    body: "JupyterLab opens with CUDA ready. VS Code runs in the same container if you prefer it.",
   },
   {
     title: "Stop when you are done",
-    body: "Credits are metered per minute while a GPU session runs. Sessions left idle for 45 minutes stop on their own, so a forgotten tab does not hold a GPU.",
+    body: "Credits are charged per minute of GPU time, and an idle workspace stops itself after 45 minutes. Your files are still there next time.",
   },
 ];
 
@@ -61,16 +61,15 @@ export default function LandingPage() {
                 A GPU from the university, in a browser tab.
               </h1>
               <p className="mt-5 text-base text-muted-foreground">
-                {siteName} gives students, researchers and faculty at the University
-                of Doha for Science and Technology a JupyterLab workspace running on
-                one of the university&rsquo;s NVIDIA L4 GPUs. You sign in with your
-                UDST address and start working — there is nothing to install and no
+                {siteName} gives UDST students, researchers and faculty a JupyterLab
+                workspace on one of the university&rsquo;s NVIDIA L4 GPUs. Sign in
+                with your UDST address and start working. Nothing to install, no
                 machine to configure.
               </p>
               <p className="mt-4 text-base text-muted-foreground">
-                Two GPUs are shared across everyone who uses them, so time on one is
-                metered in credits your department grants. When both are busy you are
-                told so, and you can queue or take a CPU workspace instead.
+                There are two GPUs for everyone, so time on one is metered in credits
+                your department grants. When both are busy you are told so, and you
+                can queue or take a CPU workspace instead.
               </p>
               <div className="mt-8 flex flex-col gap-3 sm:flex-row">
                 <Button size="lg" asChild>
@@ -142,10 +141,9 @@ export default function LandingPage() {
               What it costs you
             </h2>
             <p className="mt-2 max-w-prose text-sm text-muted-foreground">
-              Nothing, in money. Credits are the unit of fair sharing, granted by
-              your administrator so that two GPUs can go round a department. The
-              rates below are the defaults; your administrator can change them, and
-              your balance always shows the rate in force.
+              Nothing, in money. Credits are how two GPUs go round a department, and
+              your administrator grants them. The rates below are the defaults; your
+              balance always shows the rate in force.
             </p>
 
             <div className="mt-6 overflow-x-auto rounded-md border border-border bg-card">

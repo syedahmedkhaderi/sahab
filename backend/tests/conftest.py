@@ -77,6 +77,7 @@ async def client(test_engine, fake_redis):
     from app.config import get_settings
     from app.routers import sessions as sessions_router
     from app.routers import admin as admin_router
+    from app.routers import oauth as oauth_router
 
     session_factory = async_sessionmaker(
         bind=test_engine,
@@ -103,6 +104,8 @@ async def client(test_engine, fake_redis):
     # Override redis in all routers that use it
     app.dependency_overrides[sessions_router.get_redis] = override_get_redis
     app.dependency_overrides[admin_router._get_redis] = override_get_redis
+    # The OAuth router stores auth codes in Redis during the hub handoff.
+    app.dependency_overrides[oauth_router._get_redis] = override_get_redis
 
     # Mock JupyterHub to avoid real network calls
     mock_hub = AsyncMock()

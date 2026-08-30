@@ -10,9 +10,16 @@ import { cn } from "@/lib/utils";
 export function SiteHeader({
   children,
   className,
+  fullBleed = false,
 }: {
   children: React.ReactNode;
   className?: string;
+  /**
+   * Run the bar edge to edge instead of centring it on the content column.
+   * The workspace shell sits above a full-width iframe, where a centred bar
+   * would leave the controls floating in the middle of the screen.
+   */
+  fullBleed?: boolean;
 }) {
   return (
     <header
@@ -21,7 +28,12 @@ export function SiteHeader({
         className
       )}
     >
-      <div className="mx-auto flex h-14 max-w-content items-center justify-between gap-4 px-4 sm:px-6 lg:px-8">
+      <div
+        className={cn(
+          "flex h-14 items-center justify-between gap-4 px-4 sm:px-6 lg:px-8",
+          fullBleed ? "w-full" : "mx-auto max-w-content"
+        )}
+      >
         {children}
       </div>
     </header>

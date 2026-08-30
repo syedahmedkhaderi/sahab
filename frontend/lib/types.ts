@@ -87,7 +87,6 @@ export interface Session {
   // Populated by the admin session listing so the console can name the owner.
   user_email?: string | null;
   user_full_name?: string | null;
-  workspace_url?: string | null;
 }
 
 // ---------------------------------------------------------

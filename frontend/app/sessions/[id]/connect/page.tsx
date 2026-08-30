@@ -62,8 +62,12 @@ export default function SessionConnectPage() {
       if (s.state === READY_STATE) {
         setRedirecting(true);
         try {
-          const conn = await sessionsApi.connect(s.id);
-          if (!cancelled) window.location.href = conn.url;
+          // Pre-flight only: the workspace shell resolves the URL again for
+          // itself. Calling it here means a 409 or an expired session fails on
+          // this page, which has real error UI, rather than inside a blank
+          // iframe with no URL bar.
+          await sessionsApi.connect(s.id);
+          if (!cancelled) router.replace(`/sessions/${sessionId}/workspace`);
         } catch {
           if (!cancelled) router.push("/dashboard");
         }
@@ -74,7 +78,7 @@ export default function SessionConnectPage() {
 
       if (count >= MAX_POLLS) {
         setError(
-          "This is taking longer than it should. Your session may still be starting — check the dashboard in a minute."
+          "This is taking longer than it should. Your session may still be starting. Check the dashboard in a minute."
         );
         return;
       }
@@ -128,7 +132,7 @@ export default function SessionConnectPage() {
                 </span>
                 <p>
                   {redirecting ? (
-                    "Handing you over to JupyterLab. Your browser will move on its own."
+                    "Opening your workspace. This page moves you along on its own."
                   ) : isQueued ? (
                     session?.queue_pos != null ? (
                       <>

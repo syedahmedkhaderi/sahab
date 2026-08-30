@@ -15,6 +15,7 @@ from __future__ import annotations
 import secrets
 import time
 from typing import Annotated
+from urllib.parse import quote
 
 from fastapi import APIRouter, Depends, Form, HTTPException, Query, Request, Response, status
 from fastapi.responses import RedirectResponse
@@ -26,7 +27,13 @@ from app.config import Settings, get_settings
 from app.db import get_db
 from app.models import User, UserStatus
 from app.schemas import OAuthUserInfo
-from app.security import create_access_token, decode_access_token, get_current_user, hub_username
+from app.security import (
+    create_access_token,
+    decode_access_token,
+    get_current_user,
+    get_current_user_optional,
+    hub_username,
+)
 
 router = APIRouter(prefix="/oauth", tags=["oauth"])
 
@@ -41,21 +48,35 @@ def _get_redis(settings: Settings = Depends(get_settings)) -> Redis:
 
 @router.get("/authorize")
 async def authorize(
+    request: Request,
     response_type: str = Query(...),
     client_id: str = Query(...),
     redirect_uri: str = Query(...),
     state: str = Query(default=""),
-    # The user must already be authenticated (session cookie or Authorization header)
-    current_user: User = Depends(get_current_user),
+    # Optional on purpose: see the redirect below.
+    current_user: User | None = Depends(get_current_user_optional),
     redis: Redis = Depends(_get_redis),
     settings: Settings = Depends(get_settings),
 ) -> RedirectResponse:
     """
     Issue a short-lived auth code and redirect to JupyterHub.
 
-    The hub sends the user here; the user is already logged in via the cookie.
-    We mint a code, store it in Redis, and redirect to the hub's callback.
+    The hub sends the user here; the user is normally already logged in via the
+    cookie. We mint a code, store it in Redis, and redirect to the hub callback.
     """
+    if current_user is None:
+        # This is a top-level browser navigation in the middle of the hub
+        # handoff, so answering it with a 401 JSON body puts that JSON on the
+        # user's screen. Inside the workspace shell's iframe it is worse still:
+        # no URL bar, no way out. Send them to sign in and resume afterwards.
+        target = request.url.path
+        if request.url.query:
+            target = f"{target}?{request.url.query}"
+        return RedirectResponse(
+            url=f"/login?from={quote(target, safe='')}",
+            status_code=302,
+        )
+
     if client_id != settings.oauth_client_id:
         raise HTTPException(status_code=400, detail="Unknown OAuth client")
     if response_type != "code":

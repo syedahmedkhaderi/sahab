@@ -40,6 +40,22 @@ build_one() {
   docker build -t "$tag" "$dir"
   ok "Built $tag"
 
+  # Runs before, and independently of, the smoke test. It needs no GPU and no
+  # network, so unlike the GPU smoke test below it executes on every host. It
+  # validates overrides.json against the schemas JupyterLab actually shipped,
+  # which is the only thing that catches a renamed settings key: JupyterLab
+  # ignores unknown keys with a log warning rather than failing.
+  # Checked explicitly rather than relying on `set -e`: build_one is called as
+  # `build_one "$t" || rc=1`, and bash suppresses errexit inside a function
+  # whose status is being tested. A bare failing command here would be ignored
+  # and the build would report success.
+  echo "--- Config test: $tag ---"
+  if ! docker run --rm "$tag" python /tmp/config_test.py; then
+    fail "Workspace config is invalid for $tag"
+    return 1
+  fi
+  ok "Workspace config valid for $tag"
+
   if [[ "${SKIP_SMOKE:-0}" == "1" ]]; then
     warn "SKIP_SMOKE=1 set; skipping smoke test for $tag (NOT eligible to enable in catalog)."
     return 0

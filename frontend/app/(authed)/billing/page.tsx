@@ -56,7 +56,7 @@ export default function BillingPage() {
     <div className="space-y-8">
       <PageHeader
         title="Credits"
-        description="What you have, and where it went. Credits are how two GPUs are shared fairly — no money changes hands."
+        description="What you have, and where it went. Credits are how two GPUs get shared fairly. No money changes hands."
       />
 
       <div className="grid items-start gap-4 lg:grid-cols-2">
@@ -72,8 +72,8 @@ export default function BillingPage() {
             Getting more credits
           </h2>
           <p className="mt-2 text-sm text-muted-foreground">
-            An administrator grants credits by hand — there is no request button
-            here that would do anything. Email{" "}
+            An administrator grants credits by hand. There is no request button
+            here, because there is nothing for it to send. Email{" "}
             <a
               className="font-medium text-primary underline decoration-primary/30 underline-offset-4 hover:decoration-primary"
               href={`mailto:${SUPPORT_EMAIL}?subject=Sahab%20credit%20request`}

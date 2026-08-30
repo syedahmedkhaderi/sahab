@@ -9,10 +9,19 @@ http:
         prefixes:
           - "/api"
 
-    # Basic security headers applied to all public routers.
+    # Basic security headers.
+    #
+    # NOTE: despite what this comment used to claim, NO router currently
+    # references this middleware, so none of these headers are being sent.
+    #
+    # If you do wire it up, do NOT reintroduce `frameDeny: true`. The workspace
+    # shell at /sessions/<id>/workspace embeds JupyterLab from /user/* in a
+    # same-origin iframe, and X-Frame-Options: DENY would break it into a blank
+    # frame with only a console error to show why. The CSP below is the modern
+    # equivalent and permits exactly that same-origin embed and nothing else.
     secure-headers:
       headers:
-        frameDeny: true
+        contentSecurityPolicy: "frame-ancestors 'self'"
         browserXssFilter: true
         contentTypeNosniff: true
         forceSTSHeader: true

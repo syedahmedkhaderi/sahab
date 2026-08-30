@@ -1,0 +1,20 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 200 200" width="200" height="200">
+  <!--
+    Tab and app icon. Next serves this at /icon.svg via the App Router file
+    convention, so no metadata.icons entry is needed.
+
+    Square, and just the cloud: the full lockup's wordmark is unreadable at
+    16px. Colours are literal because a favicon is fetched as its own document,
+    where the app's CSS variables do not resolve.
+  -->
+  <rect width="200" height="200" rx="34" fill="#0558b6"/>
+  <g transform="translate(12, 47)">
+    <path d="M 45 90
+             A 25 25 0 0 1 50 45
+             A 35 35 0 0 1 115 35
+             A 25 25 0 0 1 150 55
+             A 20 20 0 0 1 150 90
+             Z"
+          fill="#ffffff"/>
+  </g>
+</svg>

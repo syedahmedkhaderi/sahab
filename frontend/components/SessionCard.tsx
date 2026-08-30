@@ -87,7 +87,7 @@ export function SessionCard({ session, onStopped }: SessionCardProps) {
                 You are number{" "}
                 <span className="font-mono font-medium">{session.queue_pos}</span>{" "}
                 in the queue. Your workspace starts on its own as soon as a GPU
-                frees up — you can leave this page open or come back later.
+                frees up. Leave this page open or come back later.
               </>
             ) : (
               <>
@@ -101,10 +101,9 @@ export function SessionCard({ session, onStopped }: SessionCardProps) {
         <div className="flex flex-wrap items-center gap-2">
           {isRunning && (
             <Button size="sm" asChild>
-              <Link
-                href={session.workspace_url ?? `/sessions/${session.id}/connect`}
-                target={session.workspace_url ? "_blank" : undefined}
-              >
+              {/* Straight to the workspace shell: a running session has no
+                  waiting to do, so the connect page would only flash past. */}
+              <Link href={`/sessions/${session.id}/workspace`}>
                 <ExternalLink className="h-4 w-4" aria-hidden="true" />
                 Open workspace
               </Link>

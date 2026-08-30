@@ -558,9 +558,9 @@ export default function AdminPage() {
         <div className="space-y-3">
           <p className="max-w-prose text-sm text-muted-foreground">
             Status is what Sahab has leased. A GPU can read as free here while a
-            job started outside the platform is using it — the scheduler checks
-            live utilisation before assigning one, so it will skip a busy GPU
-            rather than hand it out.
+            job started outside the platform is using it. The scheduler checks
+            live utilisation before assigning one, so it skips a busy GPU rather
+            than handing it out.
           </p>
           <TablePanel>
             <GpuInventoryTable gpus={gpus} />
@@ -727,8 +727,7 @@ export default function AdminPage() {
                 placeholder="sahab-gpu-pytorch:latest"
               />
               <p className="text-xs text-muted-foreground">
-                It must already be present on this host — nothing is pulled for
-                you.
+                It must already be present on this host. Nothing is pulled for you.
               </p>
             </div>
             <div className="space-y-1.5">
