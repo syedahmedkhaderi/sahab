@@ -124,9 +124,12 @@ def create_app() -> FastAPI:
         description="Control-plane API for the Sahab university GPU platform.",
         version="0.1.0",
         lifespan=lifespan,
-        docs_url="/api/docs",
-        redoc_url="/api/redoc",
-        openapi_url="/api/openapi.json",
+        # The schema is served on a single public hostname alongside the app, so
+        # publishing it hands an unauthenticated visitor a map of every endpoint.
+        # DEBUG=true brings it back for local work.
+        docs_url="/api/docs" if settings.debug else None,
+        redoc_url="/api/redoc" if settings.debug else None,
+        openapi_url="/api/openapi.json" if settings.debug else None,
     )
 
     # CORS — in production, restrict to PUBLIC_HOSTNAME

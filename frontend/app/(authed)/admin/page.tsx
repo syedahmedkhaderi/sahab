@@ -228,15 +228,19 @@ export default function AdminPage() {
         <div className="space-y-6">
           <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-4">
             {[
-              { label: "Active Sessions", value: metrics.active_sessions },
+              { label: "Active sessions", value: metrics.active_sessions },
               { label: "Queued", value: metrics.queued_sessions },
               {
-                label: "GPUs Available",
-                value: `${metrics.free_gpus} / ${metrics.total_gpus}`,
+                label: "GPUs available",
+                value: `${metrics.gpus_free} / ${
+                  metrics.gpus_free + metrics.gpus_leased + metrics.gpus_disabled
+                }`,
               },
               {
-                label: "Credits Burned / hr",
-                value: formatCredits(metrics.credits_burned_last_hour),
+                // The API reports cumulative totals, not a rolling window, so
+                // the tile says so rather than implying an hourly rate.
+                label: "Credits used to date",
+                value: formatCredits(metrics.total_credits_used),
               },
             ].map(({ label, value }) => (
               <Card key={label}>
@@ -276,7 +280,7 @@ export default function AdminPage() {
                     {activeSessions.map((s) => (
                       <li key={s.id} className="flex items-center justify-between text-sm">
                         <span className="text-muted-foreground">
-                          {s.user?.email ?? s.user_id}
+                          {s.user_email ?? s.user_id}
                         </span>
                         <div className="flex items-center gap-2">
                           <SessionStateBadge state={s.state} />
@@ -381,7 +385,7 @@ export default function AdminPage() {
             {sessions.slice(0, 50).map((s) => (
               <TableRow key={s.id}>
                 <TableCell className="text-sm text-muted-foreground">
-                  {s.user?.email ?? s.user_id}
+                  {s.user_email ?? s.user_id}
                 </TableCell>
                 <TableCell>{s.resource_type === "l4_gpu" ? "GPU" : "CPU"}</TableCell>
                 <TableCell className="text-muted-foreground">
@@ -589,14 +593,25 @@ function RateEditor({
 }) {
   const [value, setValue] = useState(rate.credits_per_minute.toString());
   const [saving, setSaving] = useState(false);
+  const [saveError, setSaveError] = useState<string | null>(null);
 
   const handleSave = async () => {
+    const parsed = parseFloat(value);
+    if (!Number.isFinite(parsed) || parsed < 0) {
+      setSaveError("Enter a rate of 0 or more.");
+      return;
+    }
+
     setSaving(true);
+    setSaveError(null);
     try {
-      await admin.setRates([
-        { resource_type: rate.resource_type, credits_per_minute: parseFloat(value) },
-      ]);
+      await admin.setRate({
+        resource_type: rate.resource_type,
+        credits_per_minute: parsed,
+      });
       onSaved();
+    } catch (err) {
+      setSaveError(err instanceof Error ? err.message : "Could not save this rate.");
     } finally {
       setSaving(false);
     }
@@ -608,7 +623,8 @@ function RateEditor({
       : "CPU session";
 
   return (
-    <div className="flex items-center gap-4">
+    <div className="space-y-2">
+      <div className="flex items-center gap-4">
       <div className="flex-1">
         <p className="font-medium">{label}</p>
         <p className="text-xs text-muted-foreground">credits per minute</p>
@@ -624,6 +640,12 @@ function RateEditor({
       <Button size="sm" onClick={handleSave} disabled={saving}>
         {saving ? "Saving..." : "Save"}
       </Button>
+      </div>
+      {saveError && (
+        <p className="text-sm text-destructive" role="alert">
+          {saveError}
+        </p>
+      )}
     </div>
   );
 }

@@ -129,6 +129,11 @@ class SessionOut(BaseModel):
     last_metered_at: datetime | None
     created_at: datetime
 
+    # Populated on the admin listing only. A console that shows a raw user UUID
+    # where an operator expects a person is not usable.
+    user_email: str | None = None
+    user_full_name: str | None = None
+
 
 class SessionConnectOut(BaseModel):
     url: str

@@ -1,20 +1,20 @@
 "use client";
 
 import React, { useEffect, useState } from "react";
-import { Coins, ArrowUpRight } from "lucide-react";
+import { Coins } from "lucide-react";
 import { BalanceCard } from "@/components/BalanceCard";
 import { LedgerTable } from "@/components/LedgerTable";
-import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
-import { Alert, AlertDescription } from "@/components/ui/alert";
 import { me, credits } from "@/lib/api";
 import type { User, LedgerEntry } from "@/lib/types";
+
+const SUPPORT_EMAIL =
+  process.env.NEXT_PUBLIC_SUPPORT_EMAIL || "sahab-support@udst.edu.qa";
 
 export default function BillingPage() {
   const [user, setUser] = useState<User | null>(null);
   const [ledger, setLedger] = useState<LedgerEntry[]>([]);
   const [loading, setLoading] = useState(true);
-  const [topUpSent, setTopUpSent] = useState(false);
 
   useEffect(() => {
     Promise.all([me.get(), credits.ledger()])
@@ -24,11 +24,6 @@ export default function BillingPage() {
       })
       .finally(() => setLoading(false));
   }, []);
-
-  const handleTopUpRequest = () => {
-    // In MVP, direct user to contact admin. A richer flow would POST a request.
-    setTopUpSent(true);
-  };
 
   if (loading) {
     return (
@@ -54,27 +49,20 @@ export default function BillingPage() {
             <Coins className="h-4 w-4 text-muted-foreground" />
           </CardHeader>
           <CardContent className="space-y-3">
+            {/* There is no top-up endpoint yet. The button used to pop a success
+                alert without sending anything, which told the user their request
+                had been received when nothing had happened. Until a real request
+                flow exists, this says what actually gets a student more credits. */}
             <p className="text-sm text-muted-foreground">
-              Credits are granted by a platform administrator. Contact your admin to request
-              additional compute credits.
-            </p>
-            {topUpSent ? (
-              <Alert variant="success">
-                <AlertDescription>
-                  Top-up request noted. Contact your administrator to proceed.
-                </AlertDescription>
-              </Alert>
-            ) : (
-              <Button
-                variant="outline"
-                size="sm"
-                className="flex items-center gap-1.5"
-                onClick={handleTopUpRequest}
+              Credits are granted by a platform administrator. Email{" "}
+              <a
+                className="font-medium text-primary underline underline-offset-4"
+                href={`mailto:${SUPPORT_EMAIL}?subject=Sahab%20credit%20request`}
               >
-                <ArrowUpRight className="h-4 w-4" />
-                Request top-up
-              </Button>
-            )}
+                {SUPPORT_EMAIL}
+              </a>{" "}
+              with your course or project and how many hours you need.
+            </p>
           </CardContent>
         </Card>
       </div>

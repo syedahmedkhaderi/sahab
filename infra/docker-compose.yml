@@ -77,6 +77,16 @@ services:
       - "traefik.http.routers.backend.tls=true"
       - "traefik.http.routers.backend.priority=20"
       - "traefik.http.services.backend.loadbalancer.server.port=8000"
+      # /api/metrics reports user, session and GPU counts and is meant to be
+      # internal. Prometheus scrapes it directly over the Docker network, which
+      # never passes through Traefik, so blocking it here costs nothing.
+      # Higher priority than the /api router above so it matches first.
+      - "traefik.http.routers.backend-metrics.rule=Path(`/api/metrics`)"
+      - "traefik.http.routers.backend-metrics.entrypoints=websecure"
+      - "traefik.http.routers.backend-metrics.tls=true"
+      - "traefik.http.routers.backend-metrics.priority=30"
+      - "traefik.http.routers.backend-metrics.middlewares=block-public@file"
+      - "traefik.http.routers.backend-metrics.service=backend"
 
   # ---------------------------------------------------------------------------
   # Worker — metering / scheduler (same image as backend, different CMD)
@@ -106,6 +116,12 @@ services:
     build:
       context: ../frontend
       dockerfile: Dockerfile
+      # NEXT_PUBLIC_* is baked into the client bundle at build time; passing it
+      # only through env_file would leave the built-in defaults in place.
+      args:
+        NEXT_PUBLIC_API_BASE: ${NEXT_PUBLIC_API_BASE:-/api}
+        NEXT_PUBLIC_SITE_NAME: ${NEXT_PUBLIC_SITE_NAME:-Sahab}
+        NEXT_PUBLIC_SUPPORT_EMAIL: ${NEXT_PUBLIC_SUPPORT_EMAIL:-sahab-support@udst.edu.qa}
     image: sahab-frontend:latest
     restart: unless-stopped
     env_file: ../.env
@@ -201,12 +217,10 @@ services:
       timeout: 5s
       retries: 3
     labels:
-      - "traefik.enable=true"
-      # Traefik dashboard (internal only; not exposed on public router)
-      - "traefik.http.routers.traefik-dashboard.rule=Host(`traefik.${PUBLIC_HOSTNAME}`)"
-      - "traefik.http.routers.traefik-dashboard.entrypoints=websecure"
-      - "traefik.http.routers.traefik-dashboard.tls=true"
-      - "traefik.http.routers.traefik-dashboard.service=api@internal"
+      # The dashboard router was published on Host(`traefik.${PUBLIC_HOSTNAME}`)
+      # with no auth middleware, despite a comment claiming it was internal only.
+      # Nothing depends on it, so it is removed rather than password-protected.
+      - "traefik.enable=false"
 
   # ---------------------------------------------------------------------------
   # Cloudflare Tunnel — outbound-only public exposure (Strategy A, §6)

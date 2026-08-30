@@ -82,7 +82,9 @@ export interface Session {
   created_at: string;
   // Joined fields returned by some endpoints
   image?: Image;
-  user?: Pick<User, "id" | "email" | "full_name">;
+  // Populated by the admin session listing so the console can name the owner.
+  user_email?: string | null;
+  user_full_name?: string | null;
   workspace_url?: string | null;
 }
 
@@ -117,12 +119,17 @@ export interface UsagePeriod {
 // Admin metrics
 // ---------------------------------------------------------
 
+// Mirrors AdminMetrics in backend/app/schemas.py. These names had drifted, so
+// every tile in the console rendered "undefined".
 export interface AdminMetrics {
+  total_users: number;
   active_sessions: number;
   queued_sessions: number;
-  free_gpus: number;
-  total_gpus: number;
-  credits_burned_last_hour: number;
+  gpus_free: number;
+  gpus_leased: number;
+  gpus_disabled: number;
+  total_credits_granted: number;
+  total_credits_used: number;
 }
 
 // ---------------------------------------------------------

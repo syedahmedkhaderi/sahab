@@ -19,6 +19,15 @@ WORKDIR /app
 COPY --from=deps /app/node_modules ./node_modules
 COPY . .
 
+# NEXT_PUBLIC_* values are inlined into the client bundle at build time, so they
+# have to be present here — setting them only at runtime has no effect.
+ARG NEXT_PUBLIC_API_BASE=/api
+ARG NEXT_PUBLIC_SITE_NAME=Sahab
+ARG NEXT_PUBLIC_SUPPORT_EMAIL=sahab-support@udst.edu.qa
+ENV NEXT_PUBLIC_API_BASE=$NEXT_PUBLIC_API_BASE
+ENV NEXT_PUBLIC_SITE_NAME=$NEXT_PUBLIC_SITE_NAME
+ENV NEXT_PUBLIC_SUPPORT_EMAIL=$NEXT_PUBLIC_SUPPORT_EMAIL
+
 # Next.js standalone output is enabled in next.config.js
 ENV NEXT_TELEMETRY_DISABLED=1
 RUN npm run build

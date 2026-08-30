@@ -238,9 +238,9 @@ export const admin = {
   // GPUs
   listGpus: () => get<GpuInventory[]>("/admin/gpus"),
 
-  // Rates
-  setRates: (payload: AdminUpdateRatePayload[]) =>
-    put<Rate[]>("/admin/rates", payload),
+  // Rates — PUT /admin/rates upserts a single resource type.
+  setRate: (payload: AdminUpdateRatePayload) =>
+    put<Rate>("/admin/rates", payload),
 
   // Images
   createImage: (payload: AdminImagePayload) =>

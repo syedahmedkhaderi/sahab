@@ -118,7 +118,7 @@ async def create_user(
     if grant_amount > 0:
         await credits_svc.grant_credits(db=db, user_id=new_user.id, amount=grant_amount, reason="grant")
 
-    await _audit(db, admin.id, "create_user", target=new_user.id, detail=f"email={new_user.email} role={role}")
+    await _audit(db, admin.id, "create_user", target=new_user.id, detail=f"email={new_user.email} role={role.value}")
     return new_user
 
 
@@ -186,12 +186,27 @@ async def list_all_sessions(
     state: str | None = None,
     limit: int = 50,
     offset: int = 0,
-) -> list[SessionModel]:
-    query = select(SessionModel).order_by(SessionModel.created_at.desc())
+) -> list[SessionOut]:
+    # Join the user in so the console can show who a session belongs to. The
+    # response model carries user_email/user_full_name, which SessionModel has
+    # no attribute for, so the rows are built explicitly rather than by
+    # from_attributes.
+    query = (
+        select(SessionModel, User.email, User.full_name)
+        .join(User, User.id == SessionModel.user_id)
+        .order_by(SessionModel.created_at.desc())
+    )
     if state:
         query = query.where(SessionModel.state == state)
     result = await db.execute(query.limit(limit).offset(offset))
-    return list(result.scalars().all())
+
+    sessions: list[SessionOut] = []
+    for session, email, full_name in result.all():
+        row = SessionOut.model_validate(session)
+        row.user_email = email
+        row.user_full_name = full_name
+        sessions.append(row)
+    return sessions
 
 
 @router.post("/sessions/{session_id}/stop")

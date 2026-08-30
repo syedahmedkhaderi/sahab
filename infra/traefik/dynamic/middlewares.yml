@@ -22,3 +22,10 @@ http:
         referrerPolicy: "strict-origin-when-cross-origin"
         customResponseHeaders:
           X-Powered-By: ""
+
+    # Returns 403 without forwarding. Used to keep an internal-only path off the
+    # public entrypoint while leaving it reachable over the Docker network.
+    block-public:
+      ipAllowList:
+        sourceRange:
+          - "127.0.0.1/32"
