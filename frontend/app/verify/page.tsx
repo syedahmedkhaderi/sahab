@@ -1,16 +1,16 @@
 "use client";
 
 import React, { Suspense, useEffect, useState } from "react";
-import { useRouter, useSearchParams } from "next/navigation";
-import { CheckCircle, XCircle, Loader2 } from "lucide-react";
+import Link from "next/link";
+import { useSearchParams } from "next/navigation";
+import { CheckCircle2, XCircle } from "lucide-react";
 import { Button } from "@/components/ui/button";
-import { Card, CardContent } from "@/components/ui/card";
+import { Spinner } from "@/components/ui/spinner";
+import { AuthShell } from "@/components/AuthShell";
 import { auth } from "@/lib/api";
 import { ApiClientError } from "@/lib/api";
 
-// useSearchParams must be inside a Suspense boundary in Next.js 14 App Router.
 function VerifyContent() {
-  const router = useRouter();
   const searchParams = useSearchParams();
   const token = searchParams.get("token");
 
@@ -20,7 +20,9 @@ function VerifyContent() {
   useEffect(() => {
     if (!token) {
       setStatus("error");
-      setMessage("No verification token found. Please check your email link.");
+      setMessage(
+        "This page needs a verification token in the link, and there is not one here."
+      );
       return;
     }
 
@@ -28,71 +30,67 @@ function VerifyContent() {
       .verify({ token })
       .then(() => {
         setStatus("success");
-        setMessage("Your email has been verified. You can now sign in.");
+        setMessage("Your address is confirmed. You can sign in now.");
       })
       .catch((err) => {
         setStatus("error");
-        if (err instanceof ApiClientError) {
-          setMessage(err.detail);
-        } else {
-          setMessage("Verification failed. The link may have expired.");
-        }
+        setMessage(
+          err instanceof ApiClientError
+            ? err.detail
+            : "That link could not be verified. It may have already been used."
+        );
       });
   }, [token]);
 
+  if (status === "loading") {
+    return (
+      <div className="flex items-center gap-2.5 text-sm text-muted-foreground">
+        <Spinner label="Checking your link" />
+        Checking your link
+      </div>
+    );
+  }
+
+  const isSuccess = status === "success";
+
   return (
-    <div className="flex flex-col items-center gap-4 text-center">
-      {status === "loading" && (
-        <>
-          <Loader2 className="h-12 w-12 animate-spin text-primary" />
-          <h2 className="text-xl font-semibold">Verifying your email...</h2>
-        </>
-      )}
-      {status === "success" && (
-        <>
-          <div className="flex h-12 w-12 items-center justify-center rounded-full bg-green-100">
-            <CheckCircle className="h-6 w-6 text-green-700" />
-          </div>
-          <h2 className="text-xl font-semibold">Email verified</h2>
-          <p className="text-muted-foreground">{message}</p>
-          <Button onClick={() => router.push("/login")}>Sign in</Button>
-        </>
-      )}
-      {status === "error" && (
-        <>
-          <div className="flex h-12 w-12 items-center justify-center rounded-full bg-red-100">
-            <XCircle className="h-6 w-6 text-red-700" />
-          </div>
-          <h2 className="text-xl font-semibold">Verification failed</h2>
-          <p className="text-muted-foreground">{message}</p>
-          <Button variant="outline" onClick={() => router.push("/signup")}>
-            Back to sign up
-          </Button>
-        </>
-      )}
+    <div className="space-y-4">
+      <div className="flex items-start gap-2.5">
+        {isSuccess ? (
+          <CheckCircle2
+            className="mt-0.5 h-4 w-4 shrink-0 text-success"
+            aria-hidden="true"
+          />
+        ) : (
+          <XCircle
+            className="mt-0.5 h-4 w-4 shrink-0 text-destructive"
+            aria-hidden="true"
+          />
+        )}
+        <p className="text-sm text-muted-foreground">{message}</p>
+      </div>
+      <Button variant={isSuccess ? "default" : "outline"} asChild>
+        <Link href={isSuccess ? "/login" : "/signup"}>
+          {isSuccess ? "Sign in" : "Back to the request form"}
+        </Link>
+      </Button>
     </div>
   );
 }
 
 export default function VerifyPage() {
   return (
-    <div className="flex min-h-screen items-center justify-center bg-muted/30 px-4">
-      <div className="w-full max-w-md">
-        <Card>
-          <CardContent className="pt-6">
-            <Suspense
-              fallback={
-                <div className="flex flex-col items-center gap-4 text-center">
-                  <Loader2 className="h-12 w-12 animate-spin text-primary" />
-                  <h2 className="text-xl font-semibold">Loading...</h2>
-                </div>
-              }
-            >
-              <VerifyContent />
-            </Suspense>
-          </CardContent>
-        </Card>
-      </div>
-    </div>
+    <AuthShell title="Confirming your address">
+      <Suspense
+        fallback={
+          <div className="flex items-center gap-2.5 text-sm text-muted-foreground">
+            <Spinner />
+            Loading
+          </div>
+        }
+      >
+        <VerifyContent />
+      </Suspense>
+    </AuthShell>
   );
 }

@@ -81,12 +81,14 @@ export default function DashboardPage() {
     );
   }
 
-  const firstName = user?.full_name?.trim().split(/\s+/)[0];
+  // The whole name, not the first word of it: splitting turns "Platform Admin"
+  // into "Platform", and guesses wrong on any name that is not Given Family.
+  const displayName = user?.full_name?.trim();
 
   return (
     <div className="space-y-8">
       <PageHeader
-        title={firstName ? `Welcome back, ${firstName}` : "Your workspace"}
+        title={displayName ? `Welcome back, ${displayName}` : "Your workspace"}
         description={
           activeSession
             ? "You have one workspace running. Stop it when you are done so the GPU goes back into the pool."
@@ -151,13 +153,16 @@ export default function DashboardPage() {
                   return (
                     <TableRow key={s.id}>
                       <TableCell className="font-medium text-foreground">
-                        {s.image?.name ?? "Workspace"}
+                        {s.image_name ?? "Workspace"}
                       </TableCell>
                       <TableCell className="font-mono text-muted-foreground">
                         {s.resource_type === "l4_gpu" ? "NVIDIA L4" : "CPU"}
                       </TableCell>
                       <TableCell className="text-muted-foreground">
-                        {formatDateTime(s.started_at)}
+                        {/* A failed session never started, so fall back to when
+                            it was asked for — otherwise the row is blank in the
+                            column that says when it happened. */}
+                        {formatDateTime(s.started_at ?? s.created_at)}
                       </TableCell>
                       <TableCell className="font-mono text-muted-foreground">
                         {duration !== null ? formatDuration(duration) : "—"}

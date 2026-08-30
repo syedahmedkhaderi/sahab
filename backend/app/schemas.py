@@ -133,6 +133,10 @@ class SessionOut(BaseModel):
     last_metered_at: datetime | None
     created_at: datetime
 
+    # The environment's display name. Without it every row in a session list
+    # reads "Workspace", which tells the reader nothing about what ran.
+    image_name: str | None = None
+
     # Populated on the admin listing only. A console that shows a raw user UUID
     # where an operator expects a person is not usable.
     user_email: str | None = None

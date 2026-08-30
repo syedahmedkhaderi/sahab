@@ -192,8 +192,9 @@ async def list_all_sessions(
     # no attribute for, so the rows are built explicitly rather than by
     # from_attributes.
     query = (
-        select(SessionModel, User.email, User.full_name)
+        select(SessionModel, User.email, User.full_name, Image.name)
         .join(User, User.id == SessionModel.user_id)
+        .outerjoin(Image, Image.id == SessionModel.image_id)
         .order_by(SessionModel.created_at.desc())
     )
     if state:
@@ -201,10 +202,11 @@ async def list_all_sessions(
     result = await db.execute(query.limit(limit).offset(offset))
 
     sessions: list[SessionOut] = []
-    for session, email, full_name in result.all():
+    for session, email, full_name, image_name in result.all():
         row = SessionOut.model_validate(session)
         row.user_email = email
         row.user_full_name = full_name
+        row.image_name = image_name
         sessions.append(row)
     return sessions
 

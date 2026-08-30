@@ -10,7 +10,7 @@ import { Skeleton } from "@/components/ui/skeleton";
 import { sessions as sessionsApi, images as imagesApi, rates as ratesApi } from "@/lib/api";
 import { ApiClientError } from "@/lib/api";
 import type { Image, Rate } from "@/lib/types";
-import { cn, formatCredits } from "@/lib/utils";
+import { cn, formatCredits, creditsWithUnit } from "@/lib/utils";
 
 interface LaunchFormProps {
   balance: number;
@@ -137,9 +137,7 @@ export function LaunchForm({ balance }: LaunchFormProps) {
                     {isGpu ? "NVIDIA L4 · 24 GB" : "No GPU"}
                   </span>
                   <span className="block text-sm text-foreground">
-                    {perMinute > 0
-                      ? `${formatCredits(perMinute)} credits / minute`
-                      : "Free"}
+                    {perMinute > 0 ? `${creditsWithUnit(perMinute)} / minute` : "Free"}
                   </span>
                 </span>
                 {selected && (
@@ -240,7 +238,7 @@ export function LaunchForm({ balance }: LaunchFormProps) {
           <AlertCircle className="h-4 w-4" aria-hidden="true" />
           <AlertTitle>Not enough credits</AlertTitle>
           <AlertDescription>
-            A GPU workspace costs {formatCredits(rate)} credits per minute and your
+            A GPU workspace costs {creditsWithUnit(rate)} per minute and your
             balance is {formatCredits(balance)}. A CPU workspace is free, or{" "}
             <Link href="/billing" className="underline underline-offset-4">
               ask an administrator for more credits

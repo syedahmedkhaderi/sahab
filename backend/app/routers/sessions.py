@@ -12,7 +12,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.config import Settings, get_settings
 from app.db import get_db
-from app.models import Session as SessionModel, SessionState, User
+from app.models import Image, Session as SessionModel, SessionState, User
 from app.schemas import SessionConnectOut, SessionCreateRequest, SessionOut
 from app.security import get_current_user, hub_username
 from app.services import sessions as sessions_svc
@@ -98,16 +98,24 @@ async def list_sessions(
     db: AsyncSession = Depends(get_db),
     limit: int = 20,
     offset: int = 0,
-) -> list[SessionModel]:
+) -> list[SessionOut]:
     """List the current user's sessions (active and historical)."""
+    # Outer join: a session whose image row was since deleted still belongs in
+    # the list, just without a name.
     result = await db.execute(
-        select(SessionModel)
+        select(SessionModel, Image.name)
+        .outerjoin(Image, Image.id == SessionModel.image_id)
         .where(SessionModel.user_id == current_user.id)
         .order_by(SessionModel.created_at.desc())
         .limit(limit)
         .offset(offset)
     )
-    return list(result.scalars().all())
+    rows: list[SessionOut] = []
+    for session, image_name in result.all():
+        row = SessionOut.model_validate(session)
+        row.image_name = image_name
+        rows.append(row)
+    return rows
 
 
 @router.get("/{session_id}", response_model=SessionOut)

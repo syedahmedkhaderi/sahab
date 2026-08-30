@@ -65,7 +65,7 @@ export function SessionCard({ session, onStopped }: SessionCardProps) {
       <div className="space-y-4 p-5">
         <div>
           <p className="text-base font-medium text-foreground">
-            {session.image?.name ?? "Workspace"}
+            {session.image_name ?? "Workspace"}
           </p>
           <p className="mt-1 font-mono text-sm text-muted-foreground">
             {isGpu ? "NVIDIA L4" : "CPU only"}

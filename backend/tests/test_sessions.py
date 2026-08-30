@@ -311,7 +311,11 @@ async def test_hub_failure_marks_session_failed(
     hub.start_server = AsyncMock(side_effect=Exception("Hub unreachable"))
     settings = get_settings()
 
-    with pytest.raises(Exception, match="Hub unreachable"):
+    # The raw exception is deliberately not what reaches the caller any more:
+    # it used to be formatted straight into a 502 body, which is how a Docker
+    # stack trace ended up in front of a user. It is classified instead, and
+    # the original is kept on the chain for the log.
+    with pytest.raises(sessions_svc.SessionStartError) as excinfo:
         await sessions_svc.create_session(
             db=db_session,
             redis=redis,
@@ -323,10 +327,18 @@ async def test_hub_failure_marks_session_failed(
             hub=hub,
         )
 
+    assert excinfo.value.cause == "hub_unreachable"
+    assert "Hub unreachable" not in str(excinfo.value)
+    assert "Hub unreachable" in str(excinfo.value.__cause__)
+
     # Session should be marked failed
     result = await db_session.execute(
         select(Session).where(Session.user_id == active_user.id)
     )
     sessions = list(result.scalars().all())
     assert any(s.state == SessionState.failed for s in sessions)
+
+    # And the GPU must go back into the pool rather than staying leased.
+    gpu_result = await db_session.execute(select(GpuInventory))
+    assert all(g.status == GpuStatus.free for g in gpu_result.scalars().all())
     await redis.aclose()

@@ -1,12 +1,12 @@
 "use client";
 
 import React, { useEffect, useState } from "react";
-import { Coins } from "lucide-react";
 import { BalanceCard } from "@/components/BalanceCard";
 import { LedgerTable } from "@/components/LedgerTable";
-import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
-import { me, credits } from "@/lib/api";
-import type { User, LedgerEntry } from "@/lib/types";
+import { PageHeader } from "@/components/ui/page-header";
+import { Skeleton } from "@/components/ui/skeleton";
+import { me, credits, rates as ratesApi } from "@/lib/api";
+import type { User, LedgerEntry, Rate } from "@/lib/types";
 
 const SUPPORT_EMAIL =
   process.env.NEXT_PUBLIC_SUPPORT_EMAIL || "sahab-support@udst.edu.qa";
@@ -14,6 +14,7 @@ const SUPPORT_EMAIL =
 export default function BillingPage() {
   const [user, setUser] = useState<User | null>(null);
   const [ledger, setLedger] = useState<LedgerEntry[]>([]);
+  const [gpuRate, setGpuRate] = useState<number | null>(null);
   const [loading, setLoading] = useState(true);
 
   useEffect(() => {
@@ -22,56 +23,78 @@ export default function BillingPage() {
         setUser(u);
         setLedger(l);
       })
+      .catch(() => {
+        // The authed layout redirects on an expired session.
+      })
       .finally(() => setLoading(false));
+
+    ratesApi
+      .list()
+      .then((rs: Rate[]) => {
+        const gpu = rs.find((r) => r.resource_type === "l4_gpu");
+        if (gpu) setGpuRate(gpu.credits_per_minute);
+      })
+      .catch(() => {
+        // The balance still reads correctly without the rate.
+      });
   }, []);
 
   if (loading) {
     return (
-      <div className="flex min-h-[40vh] items-center justify-center text-muted-foreground">
-        Loading billing...
+      <div className="space-y-8">
+        <Skeleton className="h-8 w-32" />
+        <div className="grid gap-4 lg:grid-cols-2">
+          <Skeleton className="h-36" />
+          <Skeleton className="h-36" />
+        </div>
+        <Skeleton className="h-64" />
       </div>
     );
   }
 
   return (
     <div className="space-y-8">
-      <h1 className="text-2xl font-bold">Billing</h1>
+      <PageHeader
+        title="Credits"
+        description="What you have, and where it went. Credits are how two GPUs are shared fairly — no money changes hands."
+      />
 
-      {/* Balance + top-up */}
-      <div className="grid gap-4 sm:grid-cols-2">
-        {user && <BalanceCard balance={user.credit_balance} />}
+      <div className="grid items-start gap-4 lg:grid-cols-2">
+        {user && (
+          <BalanceCard balance={user.credit_balance} gpuRate={gpuRate} />
+        )}
 
-        <Card>
-          <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-2">
-            <CardTitle className="text-sm font-medium text-muted-foreground">
-              Top Up Credits
-            </CardTitle>
-            <Coins className="h-4 w-4 text-muted-foreground" />
-          </CardHeader>
-          <CardContent className="space-y-3">
-            {/* There is no top-up endpoint yet. The button used to pop a success
-                alert without sending anything, which told the user their request
-                had been received when nothing had happened. Until a real request
-                flow exists, this says what actually gets a student more credits. */}
-            <p className="text-sm text-muted-foreground">
-              Credits are granted by a platform administrator. Email{" "}
-              <a
-                className="font-medium text-primary underline underline-offset-4"
-                href={`mailto:${SUPPORT_EMAIL}?subject=Sahab%20credit%20request`}
-              >
-                {SUPPORT_EMAIL}
-              </a>{" "}
-              with your course or project and how many hours you need.
-            </p>
-          </CardContent>
-        </Card>
+        {/* There is no top-up endpoint. A button here used to show a success
+            alert without sending anything, telling people their request had been
+            received when nothing had happened. */}
+        <section className="rounded-md border border-border bg-card p-5">
+          <h2 className="text-sm font-medium text-foreground">
+            Getting more credits
+          </h2>
+          <p className="mt-2 text-sm text-muted-foreground">
+            An administrator grants credits by hand — there is no request button
+            here that would do anything. Email{" "}
+            <a
+              className="font-medium text-primary underline decoration-primary/30 underline-offset-4 hover:decoration-primary"
+              href={`mailto:${SUPPORT_EMAIL}?subject=Sahab%20credit%20request`}
+            >
+              {SUPPORT_EMAIL}
+            </a>{" "}
+            with your course or project and roughly how many hours you need.
+          </p>
+          <p className="mt-3 text-sm text-muted-foreground">
+            A CPU workspace never uses credits, so you can keep working while you
+            wait.
+          </p>
+        </section>
       </div>
 
-      {/* Ledger */}
-      <div>
-        <h2 className="mb-4 text-base font-semibold">Transaction history</h2>
-        <LedgerTable entries={ledger} />
-      </div>
+      <section>
+        <h2 className="text-sm font-medium text-foreground">History</h2>
+        <div className="mt-3 overflow-x-auto rounded-md border border-border bg-card">
+          <LedgerTable entries={ledger} />
+        </div>
+      </section>
     </div>
   );
 }

@@ -1,6 +1,6 @@
 import React from "react";
 import Link from "next/link";
-import { formatCredits } from "@/lib/utils";
+import { formatCredits, creditsWithUnit } from "@/lib/utils";
 import { cn } from "@/lib/utils";
 
 interface BalanceCardProps {
@@ -60,7 +60,7 @@ export function BalanceCard({ balance, gpuRate, className }: BalanceCardProps) {
             <span className="font-medium text-foreground">
               {formatDuration(minutesLeft)}
             </span>{" "}
-            of GPU time at {formatCredits(rate!)} credits per minute.
+            of GPU time at {creditsWithUnit(rate!)} per minute.
           </>
         ) : (
           <>Charged per minute while a GPU workspace runs.</>

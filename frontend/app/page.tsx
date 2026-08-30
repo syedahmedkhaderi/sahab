@@ -57,7 +57,7 @@ export default function LandingPage() {
         <section className="border-b border-border px-4 py-14 sm:px-6 sm:py-20 lg:px-8">
           <div className="mx-auto grid max-w-content gap-10 lg:grid-cols-[minmax(0,1fr)_22rem] lg:gap-16">
             <div className="max-w-prose">
-              <h1 className="text-3xl font-semibold tracking-tight text-foreground sm:text-4xl">
+              <h1 className="text-balance text-3xl font-semibold tracking-tight text-foreground sm:text-4xl">
                 A GPU from the university, in a browser tab.
               </h1>
               <p className="mt-5 text-base text-muted-foreground">
@@ -86,7 +86,7 @@ export default function LandingPage() {
             </div>
 
             {/* The specification, as a specification. */}
-            <div className="rounded-md border border-border bg-card">
+            <div className="self-start rounded-md border border-border bg-card">
               <div className="border-b border-border px-5 py-3">
                 <h2 className="text-sm font-medium text-foreground">
                   What you get

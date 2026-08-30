@@ -34,10 +34,27 @@ export function elapsedMinutes(from: string, to?: string): number {
 
 /** Human-readable duration from minutes. */
 export function formatDuration(minutes: number): string {
+  // A session that ran for forty seconds is not "0m" — that reads as though
+  // nothing happened.
+  if (minutes < 1) return "<1m";
   if (minutes < 60) return `${minutes}m`;
   const h = Math.floor(minutes / 60);
   const m = minutes % 60;
   return m === 0 ? `${h}h` : `${h}h ${m}m`;
+}
+
+/** "1 credit", "2.5 credits" — the unit agrees with the number. */
+export function creditsWithUnit(n: number): string {
+  return `${formatCredits(n)} ${n === 1 ? "credit" : "credits"}`;
+}
+
+/**
+ * VRAM as the vendor states it. nvidia-smi reports MiB (23034 for an L4), so
+ * dividing by 1024 gives 22 and contradicts every other mention of "24 GB".
+ * GPU capacity is quoted in decimal GB, which is where 24 comes from.
+ */
+export function formatVram(mib: number): string {
+  return `${Math.round((mib * 1024 * 1024) / 1e9)} GB`;
 }
 
 /** Capitalize first letter. */

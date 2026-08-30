@@ -9,36 +9,35 @@ import {
 } from "@/components/ui/table";
 import { Badge } from "@/components/ui/badge";
 import type { GpuInventory, GpuStatus } from "@/lib/types";
+import { formatVram } from "@/lib/utils";
 
 interface GpuInventoryTableProps {
   gpus: GpuInventory[];
 }
 
-function statusVariant(
-  status: GpuStatus
-): "success" | "destructive" | "warning" | "secondary" {
-  switch (status) {
-    case "free":
-      return "success";
-    case "leased":
-      return "warning";
-    case "disabled":
-      return "destructive";
-    default:
-      return "secondary";
-  }
-}
+const STATUS: Record<
+  GpuStatus,
+  { label: string; variant: "success" | "warning" | "danger" | "outline" }
+> = {
+  free: { label: "Free", variant: "success" },
+  leased: { label: "In use", variant: "warning" },
+  disabled: { label: "Disabled", variant: "danger" },
+};
 
-function vramLabel(mb: number): string {
-  return `${Math.round(mb / 1024)} GB`;
+/** Shortens a GPU UUID to the part an operator actually reads. */
+function shortUuid(uuid: string): string {
+  const withoutPrefix = uuid.replace(/^GPU-/, "");
+  return withoutPrefix.slice(0, 8);
 }
 
 export function GpuInventoryTable({ gpus }: GpuInventoryTableProps) {
   if (gpus.length === 0) {
     return (
-      <div className="flex min-h-[120px] items-center justify-center rounded-lg border border-border text-muted-foreground">
-        No GPUs found in inventory.
-      </div>
+      <p className="px-4 py-6 text-sm text-muted-foreground">
+        No GPUs are registered. Run{" "}
+        <code className="font-mono text-xs">scripts/discover_gpus.sh</code> on the
+        host to add them.
+      </p>
     );
   }
 
@@ -47,26 +46,41 @@ export function GpuInventoryTable({ gpus }: GpuInventoryTableProps) {
       <TableHeader>
         <TableRow>
           <TableHead>Model</TableHead>
-          <TableHead>VRAM</TableHead>
+          <TableHead>Memory</TableHead>
           <TableHead>UUID</TableHead>
-          <TableHead>Status</TableHead>
+          <TableHead className="text-right">Status</TableHead>
         </TableRow>
       </TableHeader>
       <TableBody>
-        {gpus.map((gpu) => (
-          <TableRow key={gpu.id}>
-            <TableCell className="font-medium">{gpu.model}</TableCell>
-            <TableCell>{vramLabel(gpu.vram_mb)}</TableCell>
-            <TableCell className="font-mono text-xs text-muted-foreground">
-              {gpu.gpu_uuid}
-            </TableCell>
-            <TableCell>
-              <Badge variant={statusVariant(gpu.status)}>
-                {gpu.status.charAt(0).toUpperCase() + gpu.status.slice(1)}
-              </Badge>
-            </TableCell>
-          </TableRow>
-        ))}
+        {gpus.map((gpu) => {
+          const status = STATUS[gpu.status] ?? {
+            label: gpu.status,
+            variant: "outline" as const,
+          };
+          return (
+            <TableRow key={gpu.id}>
+              <TableCell className="whitespace-nowrap font-medium text-foreground">
+                {gpu.model}
+              </TableCell>
+              <TableCell className="whitespace-nowrap font-mono text-muted-foreground">
+                {formatVram(gpu.vram_mb)}
+              </TableCell>
+              {/* The full UUID is the lease key, so it stays available on hover
+                  and to a screen reader; the cell shows only the part that
+                  distinguishes one card from the other. */}
+              <TableCell
+                className="font-mono text-xs text-muted-foreground"
+                title={gpu.gpu_uuid}
+              >
+                {shortUuid(gpu.gpu_uuid)}
+                <span className="sr-only"> (full identifier {gpu.gpu_uuid})</span>
+              </TableCell>
+              <TableCell className="text-right">
+                <Badge variant={status.variant}>{status.label}</Badge>
+              </TableCell>
+            </TableRow>
+          );
+        })}
       </TableBody>
     </Table>
   );

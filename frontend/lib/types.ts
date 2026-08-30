@@ -82,6 +82,8 @@ export interface Session {
   created_at: string;
   // Joined fields returned by some endpoints
   image?: Image;
+  /** The environment's display name, joined in by the session listings. */
+  image_name?: string | null;
   // Populated by the admin session listing so the console can name the owner.
   user_email?: string | null;
   user_full_name?: string | null;
