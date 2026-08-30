@@ -2,10 +2,11 @@
 
 import React, { useState } from "react";
 import Link from "next/link";
-import { usePathname, useRouter } from "next/navigation";
+import { usePathname } from "next/navigation";
 import { Menu, X, LogOut, Settings, LayoutDashboard, CreditCard, ShieldCheck } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Wordmark } from "@/components/Wordmark";
+import { useToast } from "@/components/ui/toast";
 import { auth } from "@/lib/api";
 import type { User } from "@/lib/types";
 import { cn } from "@/lib/utils";
@@ -22,16 +23,45 @@ const navLinks = [
 
 export function Nav({ user }: NavProps) {
   const pathname = usePathname();
-  const router = useRouter();
+  const { toast } = useToast();
   const [menuOpen, setMenuOpen] = useState(false);
+  const [signingOut, setSigningOut] = useState(false);
 
+  /**
+   * Sign out, for real.
+   *
+   * Two things here are deliberate, and this used to get both wrong.
+   *
+   * The failure is not swallowed. Only the server can clear the session
+   * cookie, because it is HttpOnly. Navigating to /login after a failed
+   * logout left the cookie valid, and the middleware's "signed-in users do
+   * not see /login" rule bounced the user straight back to /dashboard — a
+   * sign-out that visibly did nothing and said nothing.
+   *
+   * The navigation is a hard one, not router.push. Next's client Router Cache
+   * keys entries by URL, and while signed in the middleware redirects /login
+   * to /dashboard — so a prefetch of the landing page's "Sign in" link can
+   * leave the dashboard payload cached under /login for minutes. router.push
+   * would then replay it with no request and no middleware run. Reloading the
+   * document drops that cache and the whole client tree, and it fixes the
+   * Back button for the same reason.
+   */
   const handleLogout = async () => {
+    setSigningOut(true);
     try {
       await auth.logout();
     } catch {
-      // ignore errors — clear session regardless
+      toast({
+        tone: "error",
+        title: "Could not sign out",
+        description:
+          "Your session is still active. Check your connection and try again.",
+      });
+      setSigningOut(false);
+      return;
     }
-    router.push("/login");
+    setMenuOpen(false);
+    window.location.assign("/login");
   };
 
   return (
@@ -89,10 +119,11 @@ export function Nav({ user }: NavProps) {
                 variant="ghost"
                 size="sm"
                 onClick={handleLogout}
+                loading={signingOut}
                 className="hidden md:inline-flex"
               >
-                <LogOut className="h-4 w-4" aria-hidden="true" />
-                Sign out
+                {!signingOut && <LogOut className="h-4 w-4" aria-hidden="true" />}
+                {signingOut ? "Signing out" : "Sign out"}
               </Button>
               {/* Mobile hamburger */}
               <button
@@ -151,11 +182,13 @@ export function Nav({ user }: NavProps) {
               </Link>
             )}
             <button
+              type="button"
               onClick={handleLogout}
-              className="flex items-center gap-2 rounded-md px-3 py-2 text-sm font-medium text-muted-foreground hover:bg-accent hover:text-accent-foreground"
+              disabled={signingOut}
+              className="flex items-center gap-2 rounded-md px-3 py-2 text-sm font-medium text-muted-foreground hover:bg-accent hover:text-accent-foreground disabled:pointer-events-none disabled:opacity-60"
             >
               <LogOut className="h-4 w-4" />
-              Sign out
+              {signingOut ? "Signing out" : "Sign out"}
             </button>
           </div>
         </div>

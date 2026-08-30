@@ -122,3 +122,58 @@ async def test_me_returns_user(client: AsyncClient, active_user: User) -> None:
     data = resp.json()
     assert data["email"] == active_user.email
     assert data["role"] == "student"
+
+
+def _cookie_attrs(set_cookie: str) -> dict[str, str | bool]:
+    """Parse a Set-Cookie header into its attributes, lower-cased.
+
+    Flag attributes (Secure, HttpOnly) become True; the rest map to their value.
+    The cookie's own name=value pair is skipped, since only the attributes
+    decide whether one cookie can overwrite another.
+    """
+    parts = [p.strip() for p in set_cookie.split(";")][1:]
+    attrs: dict[str, str | bool] = {}
+    for part in parts:
+        if "=" in part:
+            key, _, value = part.partition("=")
+            attrs[key.strip().lower()] = value.strip()
+        elif part:
+            attrs[part.lower()] = True
+    return attrs
+
+
+@pytest.mark.asyncio
+async def test_logout_cookie_matches_the_login_cookie(
+    client: AsyncClient, active_user: User
+) -> None:
+    """Sign-out must clear the exact cookie sign-in set.
+
+    Browsers decide whether one cookie replaces another from its name, domain
+    and path, so a clearing cookie that does not carry the same ones leaves the
+    session alive. Starlette's Response.delete_cookie also defaults to
+    secure=False/httponly=False, which is why logout used to emit a materially
+    different cookie from login. Both are now built by the same helper; this
+    test is what stops them drifting apart again.
+    """
+    login = await client.post(
+        "/api/auth/login",
+        json={"email": active_user.email, "password": "testpassword123"},
+    )
+    assert login.status_code == 200
+    login_attrs = _cookie_attrs(login.headers["set-cookie"])
+
+    logout = await client.post("/api/auth/logout")
+    assert logout.status_code == 200
+    logout_cookie = logout.headers["set-cookie"]
+    logout_attrs = _cookie_attrs(logout_cookie)
+
+    assert logout_cookie.startswith("session_token=")
+    # Everything that governs matching, plus the security flags, must agree.
+    for attr in ("path", "domain", "samesite", "secure", "httponly"):
+        assert login_attrs.get(attr) == logout_attrs.get(attr), (
+            f"{attr} differs: login={login_attrs.get(attr)!r} "
+            f"logout={logout_attrs.get(attr)!r}"
+        )
+
+    # And it must actually expire, rather than merely being re-set empty.
+    assert logout_attrs["max-age"] == "0"

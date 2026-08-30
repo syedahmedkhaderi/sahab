@@ -226,7 +226,7 @@ export default function LandingPage() {
 
       <footer className="border-t border-border px-4 py-8 sm:px-6 lg:px-8">
         <div className="mx-auto flex max-w-content flex-col gap-4 sm:flex-row sm:items-end sm:justify-between">
-          <Wordmark showSubtitle />
+          <Wordmark size="lg" showSubtitle />
           <a
             href="https://github.com/syedahmedkhaderi/sahab"
             target="_blank"

@@ -14,6 +14,7 @@ from app.security import (
     create_access_token,
     hash_password,
     is_allowed_domain,
+    make_session_cookie_clear_kwargs,
     make_session_cookie_kwargs,
     verify_password,
 )
@@ -102,7 +103,10 @@ async def login(
 
 
 @router.post("/logout")
-async def logout(response: Response) -> dict:
+async def logout(
+    response: Response,
+    settings: Settings = Depends(get_settings),
+) -> dict:
     """Clear the session cookie."""
-    response.delete_cookie("session_token", path="/")
+    response.set_cookie(**make_session_cookie_clear_kwargs(settings))
     return {"message": "Logged out"}

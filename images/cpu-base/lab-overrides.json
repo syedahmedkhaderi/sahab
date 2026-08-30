@@ -31,5 +31,15 @@
   "@jupyterlab/apputils-extension:notification": {
     "fetchNews": "false",
     "checkForUpdates": false
+  },
+  "@jupyterlab/cell-toolbar-extension:plugin": {
+    "toolbar": [
+      {
+        "name": "run-cell",
+        "command": "notebook:run-cell-and-select-next",
+        "icon": "ui-components:run",
+        "rank": 0
+      }
+    ]
   }
 }

@@ -22,7 +22,7 @@ export function AuthShell({
     <div className="flex min-h-screen flex-col bg-background px-4 py-10 sm:py-16">
       <div className="mx-auto w-full max-w-form">
         <Link href="/" className="inline-block rounded-sm">
-          <Wordmark showSubtitle />
+          <Wordmark size="lg" showSubtitle />
         </Link>
 
         <div className="mt-8 rounded-md border border-border bg-card p-6">

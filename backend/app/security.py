@@ -181,3 +181,18 @@ def make_session_cookie_kwargs(token: str, settings: Settings) -> dict:
         "max_age": settings.jwt_expire_minutes * 60,
         "path": "/",
     }
+
+
+def make_session_cookie_clear_kwargs(settings: Settings) -> dict:
+    """Return keyword arguments for the Response.set_cookie that signs a user out.
+
+    Derived from make_session_cookie_kwargs rather than written out again, so
+    the two cannot drift. Starlette's Response.delete_cookie defaults to
+    secure=False and httponly=False, so using it emitted a clearing cookie whose
+    attributes did not match the one login had set. Browsers match on
+    name/domain/path, so that still cleared -- but the moment a domain is added
+    above, a hand-written delete stops matching and sign-out silently fails.
+    """
+    kwargs = make_session_cookie_kwargs("", settings)
+    kwargs["max_age"] = 0
+    return kwargs
