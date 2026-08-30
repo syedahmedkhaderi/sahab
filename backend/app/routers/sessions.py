@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import logging
 from typing import Annotated
 
 from fastapi import APIRouter, Depends, HTTPException, Request, status
@@ -16,7 +17,24 @@ from app.schemas import SessionConnectOut, SessionCreateRequest, SessionOut
 from app.security import get_current_user, hub_username
 from app.services import sessions as sessions_svc
 from app.services.jupyterhub import JupyterHubClient
-from app.services.scheduler import get_queue_position
+from app.services.scheduler import GpuBusyError, get_queue_position
+
+logger = logging.getLogger(__name__)
+
+# A spawn failure the user can do something about maps onto a status that says
+# so. The raw exception stays in the log — a CDI stack trace is not an error
+# message, and it was reaching users.
+_START_FAILURE_STATUS = {
+    "hub_unreachable": status.HTTP_503_SERVICE_UNAVAILABLE,
+    "image_missing": status.HTTP_503_SERVICE_UNAVAILABLE,
+    "spawn_rejected": status.HTTP_500_INTERNAL_SERVER_ERROR,
+    "unknown": status.HTTP_500_INTERNAL_SERVER_ERROR,
+}
+
+GPU_BUSY_MESSAGE = (
+    "No GPU is free right now — another job is using them. "
+    "Start a CPU workspace, or queue for the next free GPU."
+)
 
 router = APIRouter(prefix="/sessions", tags=["sessions"])
 
@@ -52,10 +70,22 @@ async def create_session(
         )
     except ValueError as exc:
         raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail=str(exc))
-    except Exception as exc:
+    except GpuBusyError:
         raise HTTPException(
-            status_code=status.HTTP_502_BAD_GATEWAY,
-            detail=f"Failed to start session: {exc}",
+            status_code=status.HTTP_409_CONFLICT, detail=GPU_BUSY_MESSAGE
+        )
+    except sessions_svc.SessionStartError as exc:
+        raise HTTPException(
+            status_code=_START_FAILURE_STATUS.get(
+                exc.cause, status.HTTP_500_INTERNAL_SERVER_ERROR
+            ),
+            detail=str(exc),
+        )
+    except Exception:
+        logger.exception("Unexpected error creating a session")
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail="Your workspace could not be started. Please try again.",
         )
 
     return session

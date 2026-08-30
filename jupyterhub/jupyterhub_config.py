@@ -7,9 +7,10 @@ Supports two authentication modes selected by the AUTH_MODE env var:
 Security hardening per §16: cap_drop, no-new-privileges, pids_limit, no Docker socket
 in user containers.
 
-GPU assignment: a pre_spawn_hook reads NVIDIA_VISIBLE_DEVICES from the spawner
-environment, falling back to "all" for Phase-1 standalone use. The control plane
-injects the leased GPU UUID per-session via the JupyterHub API user options.
+GPU assignment: the control plane leases a GPU and passes its UUID per-session
+through the JupyterHub API user options. A pre_spawn_hook turns that into
+NVIDIA_VISIBLE_DEVICES plus the nvidia runtime. Without a leased UUID the spawn
+is CPU-only and never touches the NVIDIA stack.
 """
 import os
 
@@ -57,26 +58,39 @@ c.DockerSpawner.remove = True
 # Security hardening (§16): unprivileged containers, no new privileges, PID cap.
 # The Docker socket is NEVER mounted into user containers.
 # ---------------------------------------------------------------------------
-c.DockerSpawner.extra_host_config = {
-    "runtime": "nvidia",
+# The NVIDIA runtime is NOT applied here: a container asking for it is rejected
+# outright if any requested device is unknown to the driver, which would make a
+# CPU workspace fail for a GPU-side reason. pre_spawn_hook adds it per-spawn,
+# only when the control plane leased a GPU.
+_BASE_HOST_CONFIG = {
     "cap_drop": ["ALL"],
     "security_opt": ["no-new-privileges:true"],
     "pids_limit": 512,
 }
 
+c.DockerSpawner.extra_host_config = dict(_BASE_HOST_CONFIG)
+
 # ---------------------------------------------------------------------------
 # Per-user GPU assignment via pre_spawn_hook.
 # The control plane passes the leased GPU UUID through user_options at spawn
-# time. Phase-1 fallback is "all" (both L4s visible; safe when only one user
-# is active and no control plane is running yet).
+# time. No UUID means a CPU workspace — never "all", which would hand a user
+# every GPU on the host including ones already leased to someone else.
 # ---------------------------------------------------------------------------
 async def pre_spawn_hook(spawner):
-    """Inject NVIDIA_VISIBLE_DEVICES from user_options or fall back to 'all'."""
-    gpu_uuid = spawner.user_options.get("gpu_uuid") or os.environ.get(
-        "NVIDIA_VISIBLE_DEVICES", "all"
-    )
-    spawner.environment["NVIDIA_VISIBLE_DEVICES"] = gpu_uuid
-    spawner.environment["NVIDIA_DRIVER_CAPABILITIES"] = "compute,utility"
+    """Attach a GPU only when the control plane leased one for this session."""
+    gpu_uuid = spawner.user_options.get("gpu_uuid")
+    host_config = dict(_BASE_HOST_CONFIG)
+
+    if gpu_uuid:
+        host_config["runtime"] = "nvidia"
+        spawner.environment["NVIDIA_VISIBLE_DEVICES"] = gpu_uuid
+        spawner.environment["NVIDIA_DRIVER_CAPABILITIES"] = "compute,utility"
+    else:
+        # A CPU workspace never touches the NVIDIA stack, so it stays launchable
+        # even when the GPU inventory is wrong or the driver is unhappy.
+        spawner.environment["NVIDIA_VISIBLE_DEVICES"] = "void"
+
+    spawner.extra_host_config = host_config
 
     # Allow the control plane to select a different image per-session.
     if "image" in spawner.user_options:

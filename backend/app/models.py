@@ -210,7 +210,13 @@ class GpuLease(Base):
 
     id: Mapped[str] = mapped_column(String(36), primary_key=True, default=_uuid)
     session_id: Mapped[str] = mapped_column(String(36), ForeignKey("sessions.id"), nullable=False, index=True)
-    gpu_uuid: Mapped[str] = mapped_column(String(256), ForeignKey("gpu_inventory.gpu_uuid"), nullable=False)
+    # ON UPDATE CASCADE: a host rebuild gives the physical GPUs new UUIDs, and the
+    # inventory row is corrected in place so the lease history survives the change.
+    gpu_uuid: Mapped[str] = mapped_column(
+        String(256),
+        ForeignKey("gpu_inventory.gpu_uuid", onupdate="CASCADE"),
+        nullable=False,
+    )
     started_at: Mapped[datetime] = mapped_column(
         DateTime(timezone=True), nullable=False, server_default=func.now()
     )

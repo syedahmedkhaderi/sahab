@@ -12,6 +12,14 @@ from app.config import get_settings
 from app.db import engine, Base
 from app.routers import admin, auth, catalog, credits, me, metrics, oauth, sessions
 
+# Uvicorn only configures its own loggers, so app-level INFO (which GPU the
+# scheduler picked, which it skipped and why) is otherwise invisible in
+# `docker logs`. That is the first thing anyone checks when a launch misbehaves.
+logging.basicConfig(
+    level=logging.INFO,
+    format="%(asctime)s %(levelname)-8s %(name)s: %(message)s",
+)
+
 logger = logging.getLogger(__name__)
 settings = get_settings()
 

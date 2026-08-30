@@ -16,7 +16,9 @@ from redis.asyncio import Redis
 from sqlalchemy import select, update
 from sqlalchemy.ext.asyncio import AsyncSession
 
+from app.config import get_settings
 from app.models import GpuInventory, GpuLease, GpuStatus, Session, SessionState
+from app.services import gpu_probe
 
 logger = logging.getLogger(__name__)
 
@@ -24,6 +26,10 @@ logger = logging.getLogger(__name__)
 REDIS_GPU_LOCK = "sahab:gpu_lock"
 REDIS_GPU_QUEUE = "sahab:gpu_queue"
 LEASE_LOCK_TTL_SECONDS = 10  # hold the distributed lock for at most 10 s
+
+
+class GpuBusyError(Exception):
+    """Every GPU the DB calls free is in fact running work started outside Sahab."""
 
 
 async def _acquire_redis_lock(redis: Redis, lock_key: str, ttl: int) -> bool:
@@ -36,6 +42,44 @@ async def _release_redis_lock(redis: Redis, lock_key: str) -> None:
     await redis.delete(lock_key)
 
 
+async def _pick_idle_gpu(candidates: list[GpuInventory]) -> GpuInventory | None:
+    """
+    Choose a candidate that is genuinely idle on the host.
+
+    The DB status only reflects Sahab's own leases, so a GPU can read as free
+    while another job holds its memory. Cross-check the live DCGM readings and
+    pick the quietest GPU that clears both thresholds.
+
+    If the probe is unavailable the DB status is all we have — return the first
+    candidate rather than blocking every launch on a monitoring outage.
+    """
+    settings = get_settings()
+    readings = await gpu_probe.get_gpu_readings(settings.dcgm_metrics_url)
+    if readings is None:
+        return candidates[0]
+
+    idle = []
+    for gpu in candidates:
+        reading = readings.get(gpu.gpu_uuid)
+        if reading is None:
+            # Not in the scrape at all: no evidence it is busy, so still usable.
+            idle.append((0.0, 0.0, gpu))
+            continue
+        if reading.is_busy(settings.busy_vram_mb, settings.busy_util_pct):
+            logger.info(
+                "Skipping GPU %s: %.0f%% util, %.0f MB in use by an external job",
+                gpu.gpu_uuid, reading.util_pct, reading.used_mb,
+            )
+            continue
+        idle.append((reading.used_mb, reading.util_pct, gpu))
+
+    if not idle:
+        return None
+
+    idle.sort(key=lambda row: (row[0], row[1]))
+    return idle[0][2]
+
+
 async def try_lease_gpu(
     session_id: str,
     db: AsyncSession,
@@ -46,12 +90,14 @@ async def try_lease_gpu(
 
     Steps:
       1. Acquire a short-lived Redis lock to serialise concurrent callers.
-      2. Inside the lock, SELECT a free GPU row.
-      3. UPDATE it to 'leased' in Postgres.
-      4. INSERT a gpu_lease row.
-      5. Release the lock.
+      2. Inside the lock, SELECT every GPU the DB calls free.
+      3. Drop the ones a live probe shows are busy with outside work.
+      4. UPDATE the quietest one to 'leased' in Postgres.
+      5. INSERT a gpu_lease row, then release the lock.
 
-    Returns the gpu_uuid on success, None if no GPU is free.
+    Returns the gpu_uuid on success, or None if the pool holds no free GPU.
+    Raises GpuBusyError when GPUs are free in the DB but all busy on the host —
+    a distinct situation, and one worth telling the user about in those terms.
     """
     acquired = await _acquire_redis_lock(redis, REDIS_GPU_LOCK, LEASE_LOCK_TTL_SECONDS)
     if not acquired:
@@ -66,11 +112,18 @@ async def try_lease_gpu(
             select(GpuInventory)
             .where(GpuInventory.status == GpuStatus.free)
             .with_for_update(skip_locked=True)
-            .limit(1)
         )
-        gpu = result.scalar_one_or_none()
-        if gpu is None:
+        candidates = list(result.scalars().all())
+        if not candidates:
             return None
+
+        gpu = await _pick_idle_gpu(candidates)
+        if gpu is None:
+            # Free on paper, all busy in reality — a different problem from an
+            # empty pool, and the caller says so in different words.
+            raise GpuBusyError(
+                "All free GPUs are running work started outside Sahab"
+            )
 
         # Mark leased in inventory
         await db.execute(
@@ -180,7 +233,12 @@ async def drain_queue(db: AsyncSession, redis: Redis) -> None:
         session_id = items[0].decode() if isinstance(items[0], bytes) else items[0]
 
         # Try to lease a GPU for this session
-        gpu_uuid = await try_lease_gpu(session_id, db, redis)
+        try:
+            gpu_uuid = await try_lease_gpu(session_id, db, redis)
+        except GpuBusyError:
+            # Leave the session queued; the next release retries the drain.
+            logger.info("Queue drain paused: every free GPU is externally busy")
+            break
         if gpu_uuid is None:
             # No GPU available yet; stop draining
             break

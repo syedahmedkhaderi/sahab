@@ -64,9 +64,20 @@ class Settings(BaseSettings):
     shared_datasets_path: str = "/data/shared"
     user_volumes_path: str = "/data/users"
 
+    # ---- GPU busy probe ----
+    # The scheduler cross-checks the DCGM exporter before handing out a GPU that
+    # the DB believes is free, so a job started outside Sahab is not overwritten.
+    dcgm_metrics_url: str = "http://dcgm-exporter:9400/metrics"
+    busy_vram_mb: float = 1024.0
+    busy_util_pct: float = 30.0
+
     # ---- Monitoring ----
     grafana_admin_user: str = "admin"
     grafana_admin_password: str = "change-me-grafana"
+
+    # ---- Debug ----
+    # Publishes /api/docs, /api/redoc and /api/openapi.json. Off in production.
+    debug: bool = False
 
     @property
     def allowed_domains_list(self) -> list[str]:
