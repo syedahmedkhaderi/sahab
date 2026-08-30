@@ -52,6 +52,7 @@ async def create_session(
     resource_type: str,
     image_id: str | None,
     cpu_fallback: bool = False,
+    queue_if_busy: bool = False,
     settings: Settings,
     hub: JupyterHubClient,
 ) -> Session:
@@ -146,7 +147,7 @@ async def create_session(
             db.add(session)
             await db.flush()
             await _start_hub_server(session, None, db, redis, hub, user, settings)
-        elif busy_error is not None:
+        elif busy_error is not None and not queue_if_busy:
             raise busy_error
         else:
             # Queue the session

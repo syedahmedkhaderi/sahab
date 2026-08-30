@@ -2,14 +2,15 @@
 
 import React, { useEffect, useState } from "react";
 import { useRouter } from "next/navigation";
-import { Cpu, Server, AlertCircle, Users } from "lucide-react";
+import Link from "next/link";
+import { AlertCircle, Check } from "lucide-react";
 import { Button } from "@/components/ui/button";
-import { Card, CardContent } from "@/components/ui/card";
 import { Alert, AlertDescription, AlertTitle } from "@/components/ui/alert";
+import { Skeleton } from "@/components/ui/skeleton";
 import { sessions as sessionsApi, images as imagesApi, rates as ratesApi } from "@/lib/api";
 import { ApiClientError } from "@/lib/api";
 import type { Image, Rate } from "@/lib/types";
-import { cn } from "@/lib/utils";
+import { cn, formatCredits } from "@/lib/utils";
 
 interface LaunchFormProps {
   balance: number;
@@ -27,71 +28,66 @@ export function LaunchForm({ balance }: LaunchFormProps) {
   const [loading, setLoading] = useState(false);
   const [loadingData, setLoadingData] = useState(true);
   const [error, setError] = useState<string | null>(null);
-  const [allGpusBusy, setAllGpusBusy] = useState(false);
-  const [fallbackCpu, setFallbackCpu] = useState(false);
+  // The message the API sent when every free GPU turned out to be busy. Held
+  // separately from `error` because it comes with choices, not just a warning.
+  const [gpusBusy, setGpusBusy] = useState<string | null>(null);
 
   useEffect(() => {
     Promise.all([imagesApi.list(), ratesApi.list()])
       .then(([imgs, rs]) => {
         setAvailableImages(imgs.filter((i) => i.enabled));
         setAvailableRates(rs);
-        // The default image is selected by the effect below, which keeps it in
-        // sync with the chosen runtime (GPU images for GPU sessions, etc.).
       })
-      .catch(() => setError("Failed to load catalog data."))
+      .catch(() =>
+        setError("Could not load the list of environments. Reload the page to try again.")
+      )
       .finally(() => setLoadingData(false));
   }, []);
 
-  const rateFor = (type: ResourceType): number => {
-    const r = availableRates.find((r) => r.resource_type === type);
-    return r ? r.credits_per_minute * 60 : 0;
-  };
+  const ratePerMinute = (type: ResourceType): number =>
+    availableRates.find((r) => r.resource_type === type)?.credits_per_minute ?? 0;
 
   const filteredImages = availableImages.filter((img) =>
     selectedResource === "l4_gpu" ? img.kind === "gpu" : img.kind === "cpu"
   );
 
-  // Keep the selected image valid for the chosen runtime. Runs when the
-  // runtime changes AND once the image list loads, so a GPU session can never
-  // be left pointing at a CPU image (or vice versa). Prefers the kind's default.
+  // Keep the selected image valid for the chosen runtime, so a GPU session can
+  // never be left pointing at a CPU image (or the reverse).
   useEffect(() => {
     const valid = availableImages.filter((img) =>
       selectedResource === "l4_gpu" ? img.kind === "gpu" : img.kind === "cpu"
     );
     const preferred = valid.find((i) => i.is_default) ?? valid[0];
     setSelectedImageId(preferred ? preferred.id : "");
-  }, [selectedResource, availableImages]); // eslint-disable-line react-hooks/exhaustive-deps
+  }, [selectedResource, availableImages]);
 
-  const creditsPerHour = rateFor(selectedResource);
-  const hasEnoughCredits = balance >= creditsPerHour / 60; // at least 1 minute
+  const rate = ratePerMinute(selectedResource);
+  const hasEnoughCredits = rate <= 0 || balance >= rate;
   const noImages = filteredImages.length === 0;
 
-  const handleSubmit = async () => {
+  const launch = async (options?: { queueIfBusy?: boolean }) => {
     if (!selectedImageId) return;
     setLoading(true);
     setError(null);
-    setAllGpusBusy(false);
+    if (!options?.queueIfBusy) setGpusBusy(null);
 
     try {
       const session = await sessionsApi.create({
         resource_type: selectedResource,
         image_id: selectedImageId,
-        cpu_fallback: fallbackCpu,
+        queue_if_busy: options?.queueIfBusy ?? false,
       });
-
-      // Poll until running or queued visible then redirect
       router.push(`/sessions/${session.id}/connect`);
     } catch (e) {
       if (e instanceof ApiClientError) {
-        if (e.status === 409 || e.detail.toLowerCase().includes("busy") || e.detail.toLowerCase().includes("gpu")) {
-          setAllGpusBusy(true);
-        } else if (e.status === 402 || e.detail.toLowerCase().includes("credit")) {
-          setError("Insufficient credits to start a session. Please request a top-up.");
+        if (e.status === 409) {
+          // The API's own words: it knows whether the pool is empty or busy.
+          setGpusBusy(e.detail);
         } else {
           setError(e.detail);
         }
       } else {
-        setError("An unexpected error occurred. Please try again.");
+        setError("Something went wrong starting your workspace. Please try again.");
       }
       setLoading(false);
     }
@@ -99,157 +95,189 @@ export function LaunchForm({ balance }: LaunchFormProps) {
 
   if (loadingData) {
     return (
-      <div className="flex h-32 items-center justify-center text-muted-foreground">
-        Loading catalog...
+      <div className="space-y-6">
+        <Skeleton className="h-32 w-full" />
+        <Skeleton className="h-24 w-full" />
+        <Skeleton className="h-9 w-full" />
       </div>
     );
   }
 
   return (
-    <div className="space-y-6">
-      {/* Runtime selector */}
-      <div>
-        <p className="mb-3 text-sm font-medium">Runtime</p>
-        <div className="grid gap-3 sm:grid-cols-2">
+    <div className="space-y-8">
+      <fieldset>
+        <legend className="text-sm font-medium text-foreground">Hardware</legend>
+        <p className="mt-1 text-sm text-muted-foreground">
+          You do not pick a specific GPU — Sahab assigns one that is free.
+        </p>
+
+        <div className="mt-3 grid gap-2 sm:grid-cols-2">
           {(["l4_gpu", "cpu"] as ResourceType[]).map((type) => {
-            const rate = rateFor(type);
+            const perMinute = ratePerMinute(type);
             const isGpu = type === "l4_gpu";
+            const selected = selectedResource === type;
             return (
               <button
                 key={type}
+                type="button"
+                aria-pressed={selected}
                 onClick={() => setSelectedResource(type)}
                 className={cn(
-                  "flex items-start gap-3 rounded-lg border p-4 text-left transition-colors",
-                  selectedResource === type
-                    ? "border-primary bg-primary/5 ring-2 ring-primary"
-                    : "border-border hover:bg-accent"
+                  "flex items-start justify-between gap-3 rounded-md border p-4 text-left transition-colors",
+                  selected
+                    ? "border-primary bg-info-subtle"
+                    : "border-border bg-card hover:border-border-strong"
                 )}
               >
-                <div className={cn("mt-0.5 rounded-md p-1.5", isGpu ? "bg-violet-100 text-violet-700" : "bg-blue-100 text-blue-700")}>
-                  {isGpu ? <Server className="h-5 w-5" /> : <Cpu className="h-5 w-5" />}
-                </div>
-                <div>
-                  <p className="font-semibold">{isGpu ? "GPU Session" : "CPU Session"}</p>
-                  <p className="text-sm text-muted-foreground">
-                    {isGpu ? "NVIDIA L4 — 24 GB VRAM" : "Standard CPU — no GPU"}
-                  </p>
-                  <p className="mt-1 text-sm font-medium">
-                    {rate > 0
-                      ? `${rate.toFixed(0)} credits / hour`
+                <span className="space-y-1">
+                  <span className="block text-sm font-medium text-foreground">
+                    {isGpu ? "GPU workspace" : "CPU workspace"}
+                  </span>
+                  <span className="block font-mono text-xs text-muted-foreground">
+                    {isGpu ? "NVIDIA L4 · 24 GB" : "No GPU"}
+                  </span>
+                  <span className="block text-sm text-foreground">
+                    {perMinute > 0
+                      ? `${formatCredits(perMinute)} credits / minute`
                       : "Free"}
-                  </p>
-                </div>
+                  </span>
+                </span>
+                {selected && (
+                  <Check
+                    className="mt-0.5 h-4 w-4 shrink-0 text-primary"
+                    aria-hidden="true"
+                  />
+                )}
               </button>
             );
           })}
         </div>
-      </div>
+      </fieldset>
 
-      {/* Image selector */}
-      <div>
-        <p className="mb-3 text-sm font-medium">Environment</p>
+      <fieldset>
+        <legend className="text-sm font-medium text-foreground">Environment</legend>
+        <p className="mt-1 text-sm text-muted-foreground">
+          The container image your workspace runs. Libraries are pre-installed and
+          version-pinned.
+        </p>
+
         {noImages ? (
-          <div className="rounded-lg border border-border px-4 py-8 text-center text-sm text-muted-foreground">
-            No environments available for the selected runtime.
-          </div>
+          <p className="mt-3 rounded-md border border-dashed border-border-strong px-4 py-6 text-sm text-muted-foreground">
+            No environment is available for this hardware yet. An administrator
+            needs to enable one.
+          </p>
         ) : (
-          <div className="grid gap-2">
-            {filteredImages.map((img) => (
-              <button
-                key={img.id}
-                onClick={() => setSelectedImageId(img.id)}
-                className={cn(
-                  "flex items-center justify-between rounded-md border px-4 py-3 text-left text-sm transition-colors",
-                  selectedImageId === img.id
-                    ? "border-primary bg-primary/5 ring-2 ring-primary"
-                    : "border-border hover:bg-accent"
-                )}
-              >
-                <span className="font-medium">{img.name}</span>
-                {img.is_default && (
-                  <span className="text-xs text-muted-foreground">Default</span>
-                )}
-              </button>
-            ))}
+          <div className="mt-3 grid gap-2">
+            {filteredImages.map((img) => {
+              const selected = selectedImageId === img.id;
+              return (
+                <button
+                  key={img.id}
+                  type="button"
+                  aria-pressed={selected}
+                  onClick={() => setSelectedImageId(img.id)}
+                  className={cn(
+                    "flex items-center justify-between gap-3 rounded-md border px-4 py-3 text-left transition-colors",
+                    selected
+                      ? "border-primary bg-info-subtle"
+                      : "border-border bg-card hover:border-border-strong"
+                  )}
+                >
+                  <span className="min-w-0">
+                    <span className="block truncate text-sm font-medium text-foreground">
+                      {img.name}
+                    </span>
+                    {img.is_default && (
+                      <span className="block text-xs text-muted-foreground">
+                        Recommended
+                      </span>
+                    )}
+                  </span>
+                  {selected && (
+                    <Check className="h-4 w-4 shrink-0 text-primary" aria-hidden="true" />
+                  )}
+                </button>
+              );
+            })}
           </div>
         )}
-      </div>
+      </fieldset>
 
-      {/* All GPUs busy — fallback options */}
-      {allGpusBusy && selectedResource === "l4_gpu" && (
+      {/* No GPU available. The API distinguishes an empty pool from GPUs that
+          are busy with outside work, so its wording is shown rather than a
+          guess, and each choice below actually does something. */}
+      {gpusBusy && selectedResource === "l4_gpu" && (
         <Alert variant="warning">
-          <Users className="h-4 w-4" />
-          <AlertTitle>All GPUs are currently in use</AlertTitle>
-          <AlertDescription className="mt-2 space-y-3">
-            <p>Both NVIDIA L4 GPUs are occupied. You can:</p>
+          <AlertCircle className="h-4 w-4" aria-hidden="true" />
+          <AlertTitle>No GPU right now</AlertTitle>
+          <AlertDescription className="mt-1.5 space-y-3">
+            <p>{gpusBusy}</p>
             <div className="flex flex-col gap-2 sm:flex-row">
               <Button
                 size="sm"
-                variant="outline"
                 onClick={() => {
-                  setFallbackCpu(false);
-                  setAllGpusBusy(false);
-                  // re-submit with queue option — the backend will queue it
-                  handleSubmit();
+                  setSelectedResource("cpu");
+                  setGpusBusy(null);
                 }}
-                disabled={loading}
               >
-                Join the GPU queue
+                Start a CPU workspace instead
               </Button>
               <Button
                 size="sm"
                 variant="outline"
-                onClick={() => {
-                  setSelectedResource("cpu");
-                  setAllGpusBusy(false);
-                }}
+                loading={loading}
+                onClick={() => launch({ queueIfBusy: true })}
               >
-                Switch to CPU session (free)
+                Wait for a GPU
               </Button>
             </div>
           </AlertDescription>
         </Alert>
       )}
 
-      {/* Insufficient credits */}
-      {!hasEnoughCredits && creditsPerHour > 0 && !allGpusBusy && (
+      {!hasEnoughCredits && (
         <Alert variant="destructive">
-          <AlertCircle className="h-4 w-4" />
-          <AlertTitle>Insufficient credits</AlertTitle>
+          <AlertCircle className="h-4 w-4" aria-hidden="true" />
+          <AlertTitle>Not enough credits</AlertTitle>
           <AlertDescription>
-            You need at least {Math.ceil(creditsPerHour / 60)} credit to start a{" "}
-            {selectedResource === "l4_gpu" ? "GPU" : "CPU"} session.{" "}
-            <a href="/billing" className="underline">
-              Request a top-up
-            </a>
+            A GPU workspace costs {formatCredits(rate)} credits per minute and your
+            balance is {formatCredits(balance)}. A CPU workspace is free, or{" "}
+            <Link href="/billing" className="underline underline-offset-4">
+              ask an administrator for more credits
+            </Link>
             .
           </AlertDescription>
         </Alert>
       )}
 
-      {error && !allGpusBusy && (
+      {error && (
         <Alert variant="destructive">
-          <AlertCircle className="h-4 w-4" />
-          <AlertTitle>Error</AlertTitle>
+          <AlertCircle className="h-4 w-4" aria-hidden="true" />
+          <AlertTitle>Could not start your workspace</AlertTitle>
           <AlertDescription>{error}</AlertDescription>
         </Alert>
       )}
 
-      {/* Submit */}
-      <Button
-        className="w-full"
-        size="lg"
-        disabled={
-          loading ||
-          noImages ||
-          !selectedImageId ||
-          (!hasEnoughCredits && creditsPerHour > 0) ||
-          allGpusBusy
-        }
-        onClick={handleSubmit}
-      >
-        {loading ? "Launching..." : "Launch Workspace"}
-      </Button>
+      <div className="space-y-2">
+        <Button
+          className="w-full"
+          size="lg"
+          loading={loading}
+          disabled={noImages || !selectedImageId || !hasEnoughCredits}
+          onClick={() => launch()}
+        >
+          {loading
+            ? "Starting your workspace"
+            : selectedResource === "l4_gpu"
+              ? "Start GPU workspace"
+              : "Start CPU workspace"}
+        </Button>
+        <p className="text-center text-xs text-muted-foreground">
+          {selectedResource === "l4_gpu"
+            ? "Credits are charged per minute from the moment it starts running."
+            : "A CPU workspace does not use credits."}
+        </p>
+      </div>
     </div>
   );
 }

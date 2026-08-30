@@ -153,7 +153,13 @@ export const me = {
 export interface CreateSessionPayload {
   resource_type: "l4_gpu" | "cpu";
   image_id: string;
+  /** Silently start a CPU workspace when no GPU can be had. */
   cpu_fallback?: boolean;
+  /**
+   * Queue even when every free GPU is busy with work started outside Sahab.
+   * Sent only after the user has been told and has chosen to wait.
+   */
+  queue_if_busy?: boolean;
 }
 
 export const sessions = {

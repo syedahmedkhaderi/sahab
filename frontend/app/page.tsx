@@ -1,253 +1,242 @@
 import React from "react";
 import Link from "next/link";
-import {
-  Server,
-  Cpu,
-  GraduationCap,
-  FlaskConical,
-  BookOpen,
-  Shield,
-  Zap,
-  Clock,
-} from "lucide-react";
+import { ArrowRight } from "lucide-react";
 import { Button } from "@/components/ui/button";
-import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
-import { Badge } from "@/components/ui/badge";
+import { Wordmark } from "@/components/Wordmark";
+import { SiteHeader } from "@/components/SiteHeader";
 
 const siteName = process.env.NEXT_PUBLIC_SITE_NAME ?? "Sahab";
+
+// The hardware this platform actually runs on. Two L4s, and the page says two.
+const HARDWARE = [
+  { label: "GPUs", value: "2 × NVIDIA L4" },
+  { label: "Memory per GPU", value: "24 GB" },
+  { label: "Workspace storage", value: "50 GB, kept between sessions" },
+  { label: "Environment", value: "JupyterLab, VS Code, PyTorch + CUDA" },
+];
+
+const STEPS = [
+  {
+    title: "Sign in with your UDST email",
+    body: "Accounts are approved by the platform administrator before the first launch. Only udst.edu.qa addresses can register.",
+  },
+  {
+    title: "Ask for a GPU workspace",
+    body: "You choose whether you need a GPU and which environment to run. You do not choose which GPU — the scheduler assigns one that is genuinely free, and tells you plainly when there is none.",
+  },
+  {
+    title: "Work in the browser",
+    body: "JupyterLab opens with CUDA available. VS Code runs in the same container if you prefer it. Your files stay in place when the session ends.",
+  },
+  {
+    title: "Stop when you are done",
+    body: "Credits are metered per minute while a GPU session runs. Sessions left idle for 45 minutes stop on their own, so a forgotten tab does not hold a GPU.",
+  },
+];
 
 export default function LandingPage() {
   return (
     <div className="flex min-h-screen flex-col">
-      {/* Header */}
-      <header className="sticky top-0 z-40 border-b border-border bg-background/95 backdrop-blur supports-[backdrop-filter]:bg-background/60">
-        <div className="mx-auto flex h-16 max-w-7xl items-center justify-between px-4 sm:px-6 lg:px-8">
-          <div className="flex items-center gap-2">
-            <Server className="h-6 w-6 text-primary" />
-            <span className="text-lg font-bold tracking-tight">{siteName}</span>
-          </div>
-          <div className="flex items-center gap-2">
-            <Link href="/login">
-              <Button variant="ghost" size="sm">
-                Sign in
-              </Button>
-            </Link>
-            <Link href="/signup">
-              <Button size="sm">Get started</Button>
-            </Link>
-          </div>
+      <SiteHeader>
+        <Link href="/" className="rounded-sm">
+          <Wordmark />
+        </Link>
+        <div className="flex items-center gap-1.5">
+          <Button variant="ghost" size="sm" asChild>
+            <Link href="/login">Sign in</Link>
+          </Button>
+          <Button size="sm" asChild>
+            <Link href="/signup">Request an account</Link>
+          </Button>
         </div>
-      </header>
+      </SiteHeader>
 
       <main className="flex-1">
-        {/* Hero */}
-        <section className="px-4 py-20 sm:px-6 lg:px-8">
-          <div className="mx-auto max-w-4xl text-center">
-            <Badge variant="secondary" className="mb-6">
-              University GPU Compute Platform
-            </Badge>
-            <h1 className="mb-6 text-4xl font-bold tracking-tight sm:text-5xl lg:text-6xl">
-              GPU compute in your browser.
-              <br />
-              <span className="text-primary">No VPN. No SSH. No setup.</span>
-            </h1>
-            <p className="mb-10 text-lg text-muted-foreground sm:text-xl">
-              {siteName} gives students and researchers access to university GPU servers through a
-              professional browser-based IDE. Open a notebook or VS Code, run your models, and
-              pay only for the compute time you use.
-            </p>
-            <div className="flex flex-col items-center gap-3 sm:flex-row sm:justify-center">
-              <Link href="/signup">
-                <Button size="lg" className="w-full sm:w-auto">
-                  Request access
+        {/* Opening. Left-aligned and factual: the specification sits beside the
+            claim rather than under a centred marketing headline. */}
+        <section className="border-b border-border px-4 py-14 sm:px-6 sm:py-20 lg:px-8">
+          <div className="mx-auto grid max-w-content gap-10 lg:grid-cols-[minmax(0,1fr)_22rem] lg:gap-16">
+            <div className="max-w-prose">
+              <h1 className="text-3xl font-semibold tracking-tight text-foreground sm:text-4xl">
+                A GPU from the university, in a browser tab.
+              </h1>
+              <p className="mt-5 text-base text-muted-foreground">
+                {siteName} gives students, researchers and faculty at the University
+                of Doha for Science and Technology a JupyterLab workspace running on
+                one of the university&rsquo;s NVIDIA L4 GPUs. You sign in with your
+                UDST address and start working — there is nothing to install and no
+                machine to configure.
+              </p>
+              <p className="mt-4 text-base text-muted-foreground">
+                Two GPUs are shared across everyone who uses them, so time on one is
+                metered in credits your department grants. When both are busy you are
+                told so, and you can queue or take a CPU workspace instead.
+              </p>
+              <div className="mt-8 flex flex-col gap-3 sm:flex-row">
+                <Button size="lg" asChild>
+                  <Link href="/signup">
+                    Request an account
+                    <ArrowRight className="h-4 w-4" aria-hidden="true" />
+                  </Link>
                 </Button>
-              </Link>
-              <Link href="/login">
-                <Button variant="outline" size="lg" className="w-full sm:w-auto">
-                  Sign in
+                <Button variant="outline" size="lg" asChild>
+                  <Link href="/login">I already have one</Link>
                 </Button>
-              </Link>
+              </div>
+            </div>
+
+            {/* The specification, as a specification. */}
+            <div className="rounded-md border border-border bg-card">
+              <div className="border-b border-border px-5 py-3">
+                <h2 className="text-sm font-medium text-foreground">
+                  What you get
+                </h2>
+              </div>
+              <dl className="divide-y divide-border">
+                {HARDWARE.map(({ label, value }) => (
+                  <div key={label} className="px-5 py-3">
+                    <dt className="text-xs text-muted-foreground">{label}</dt>
+                    <dd className="mt-0.5 font-mono text-sm text-foreground">
+                      {value}
+                    </dd>
+                  </div>
+                ))}
+              </dl>
             </div>
           </div>
         </section>
 
-        {/* Who it's for */}
-        <section className="border-t border-border bg-muted/30 px-4 py-16 sm:px-6 lg:px-8">
-          <div className="mx-auto max-w-7xl">
-            <h2 className="mb-12 text-center text-2xl font-bold sm:text-3xl">
-              Built for the university community
+        {/* How it works. A sequence, because the order genuinely matters. */}
+        <section className="border-b border-border px-4 py-14 sm:px-6 lg:px-8">
+          <div className="mx-auto max-w-content">
+            <h2 className="text-xl font-semibold tracking-tight text-foreground">
+              How it works
             </h2>
-            <div className="grid gap-6 sm:grid-cols-3">
-              {[
-                {
-                  icon: GraduationCap,
-                  title: "Students",
-                  description:
-                    "Train your course projects and hackathon models on real GPU hardware — no local setup, no waiting for shared lab computers. Your files persist between sessions.",
-                },
-                {
-                  icon: FlaskConical,
-                  title: "Researchers",
-                  description:
-                    "Run experiments with PyTorch, TensorFlow, or JAX on a dedicated NVIDIA L4. Get a full notebook environment plus VS Code in the browser, with your code and data intact.",
-                },
-                {
-                  icon: BookOpen,
-                  title: "Professors",
-                  description:
-                    "Assign GPU-enabled coursework without asking students to configure VPN or SSH. Grant course credits, monitor usage, and ensure fair access across your cohort.",
-                },
-              ].map(({ icon: Icon, title, description }) => (
-                <Card key={title}>
-                  <CardHeader>
-                    <div className="mb-2 flex h-10 w-10 items-center justify-center rounded-lg bg-primary/10 text-primary">
-                      <Icon className="h-5 w-5" />
-                    </div>
-                    <CardTitle className="text-xl">{title}</CardTitle>
-                  </CardHeader>
-                  <CardContent>
-                    <p className="text-muted-foreground">{description}</p>
-                  </CardContent>
-                </Card>
-              ))}
-            </div>
-          </div>
-        </section>
-
-        {/* How it works */}
-        <section className="px-4 py-16 sm:px-6 lg:px-8">
-          <div className="mx-auto max-w-3xl">
-            <h2 className="mb-12 text-center text-2xl font-bold sm:text-3xl">
-              From login to working GPU in under 60 seconds
-            </h2>
-            <ol className="space-y-6">
-              {[
-                "Sign in with your university email address.",
-                'Click "Launch Workspace," pick a runtime (GPU or CPU) and an environment.',
-                "Your container starts — JupyterLab and VS Code are ready in the browser.",
-                "Work normally. Credits are deducted per minute of GPU time.",
-                "Stop your session when done. Your files are saved for next time.",
-              ].map((step, i) => (
-                <li key={i} className="flex items-start gap-4">
-                  <span className="flex h-8 w-8 shrink-0 items-center justify-center rounded-full bg-primary text-sm font-bold text-primary-foreground">
-                    {i + 1}
+            <ol className="mt-8 grid gap-x-12 gap-y-8 sm:grid-cols-2">
+              {STEPS.map((step, index) => (
+                <li key={step.title} className="flex gap-4">
+                  <span
+                    aria-hidden="true"
+                    className="mt-0.5 font-mono text-sm text-primary"
+                  >
+                    {String(index + 1).padStart(2, "0")}
                   </span>
-                  <p className="pt-1 text-base text-muted-foreground">{step}</p>
+                  <div className="max-w-prose">
+                    <h3 className="text-sm font-medium text-foreground">
+                      {step.title}
+                    </h3>
+                    <p className="mt-1.5 text-sm text-muted-foreground">
+                      {step.body}
+                    </p>
+                  </div>
                 </li>
               ))}
             </ol>
           </div>
         </section>
 
-        {/* Pricing */}
-        <section className="border-t border-border bg-muted/30 px-4 py-16 sm:px-6 lg:px-8">
-          <div className="mx-auto max-w-7xl">
-            <h2 className="mb-4 text-center text-2xl font-bold sm:text-3xl">
-              Simple credit-based pricing
+        {/* Rates, stated as a table because that is what they are. */}
+        <section className="border-b border-border px-4 py-14 sm:px-6 lg:px-8">
+          <div className="mx-auto max-w-content">
+            <h2 className="text-xl font-semibold tracking-tight text-foreground">
+              What it costs you
             </h2>
-            <p className="mb-12 text-center text-muted-foreground">
-              Credits are granted by your administrator. There is no credit card required.
+            <p className="mt-2 max-w-prose text-sm text-muted-foreground">
+              Nothing, in money. Credits are the unit of fair sharing, granted by
+              your administrator so that two GPUs can go round a department. The
+              rates below are the defaults; your administrator can change them, and
+              your balance always shows the rate in force.
             </p>
-            <div className="mx-auto grid max-w-2xl gap-6 sm:grid-cols-2">
-              <Card>
-                <CardHeader>
-                  <div className="mb-2 flex h-10 w-10 items-center justify-center rounded-lg bg-violet-100 text-violet-700">
-                    <Server className="h-5 w-5" />
-                  </div>
-                  <CardTitle>GPU Session</CardTitle>
-                </CardHeader>
-                <CardContent className="space-y-2">
-                  <p className="text-3xl font-bold">
-                    60 <span className="text-base font-normal text-muted-foreground">credits / hour</span>
-                  </p>
-                  <ul className="space-y-1 text-sm text-muted-foreground">
-                    <li>NVIDIA L4 — 24 GB VRAM</li>
-                    <li>Dedicated whole-GPU allocation</li>
-                    <li>JupyterLab + VS Code</li>
-                    <li>Persistent 50 GB workspace</li>
-                  </ul>
-                </CardContent>
-              </Card>
 
-              <Card>
-                <CardHeader>
-                  <div className="mb-2 flex h-10 w-10 items-center justify-center rounded-lg bg-blue-100 text-blue-700">
-                    <Cpu className="h-5 w-5" />
-                  </div>
-                  <CardTitle>CPU Session</CardTitle>
-                </CardHeader>
-                <CardContent className="space-y-2">
-                  <p className="text-3xl font-bold">
-                    Free <span className="text-base font-normal text-muted-foreground"></span>
-                  </p>
-                  <ul className="space-y-1 text-sm text-muted-foreground">
-                    <li>Standard CPU compute</li>
-                    <li>No GPU access</li>
-                    <li>JupyterLab + VS Code</li>
-                    <li>Persistent 50 GB workspace</li>
-                  </ul>
-                </CardContent>
-              </Card>
+            <div className="mt-6 overflow-x-auto rounded-md border border-border bg-card">
+              <table className="w-full min-w-[34rem] text-sm">
+                <thead>
+                  <tr className="border-b border-border text-left">
+                    <th className="px-5 py-3 font-medium text-muted-foreground">
+                      Workspace
+                    </th>
+                    <th className="px-5 py-3 font-medium text-muted-foreground">
+                      Rate
+                    </th>
+                    <th className="px-5 py-3 font-medium text-muted-foreground">
+                      Hardware
+                    </th>
+                  </tr>
+                </thead>
+                <tbody className="divide-y divide-border">
+                  <tr>
+                    <td className="px-5 py-3.5 font-medium text-foreground">
+                      GPU workspace
+                    </td>
+                    <td className="px-5 py-3.5 font-mono text-foreground">
+                      1 credit / minute
+                    </td>
+                    <td className="px-5 py-3.5 text-muted-foreground">
+                      One whole NVIDIA L4, not shared while you hold it
+                    </td>
+                  </tr>
+                  <tr>
+                    <td className="px-5 py-3.5 font-medium text-foreground">
+                      CPU workspace
+                    </td>
+                    <td className="px-5 py-3.5 font-mono text-foreground">Free</td>
+                    <td className="px-5 py-3.5 text-muted-foreground">
+                      The same environment, without a GPU
+                    </td>
+                  </tr>
+                </tbody>
+              </table>
             </div>
-            <p className="mt-6 text-center text-xs text-muted-foreground">
-              Exact rates are set by the platform administrator and may vary.
-            </p>
           </div>
         </section>
 
-        {/* Feature highlights */}
-        <section className="px-4 py-16 sm:px-6 lg:px-8">
-          <div className="mx-auto max-w-7xl">
-            <div className="grid gap-8 sm:grid-cols-3">
+        {/* Who it is for. Rows, not three identical cards. */}
+        <section className="px-4 py-14 sm:px-6 lg:px-8">
+          <div className="mx-auto max-w-content">
+            <h2 className="text-xl font-semibold tracking-tight text-foreground">
+              Who it is for
+            </h2>
+            <dl className="mt-8 space-y-6 border-t border-border pt-6">
               {[
                 {
-                  icon: Shield,
-                  title: "Isolated workspaces",
-                  body: "Each session runs in a dedicated container with exactly one GPU pinned. Your code and VRAM are never shared with other users.",
+                  who: "Students",
+                  what: "Course projects and capstones that need more than a laptop. Nothing to install, and your work is still there next week.",
                 },
                 {
-                  icon: Zap,
-                  title: "Pre-built ML stacks",
-                  body: "PyTorch, CUDA, transformers, and data-science libraries are pre-installed and version-pinned. No environment setup needed.",
+                  who: "Researchers",
+                  what: "Experiments in PyTorch on a dedicated L4, with the environment already built and pinned.",
                 },
                 {
-                  icon: Clock,
-                  title: "Fair scheduling",
-                  body: "When both GPUs are busy, you join a queue and are notified when one is free. Idle sessions are culled automatically so GPUs stay available.",
+                  who: "Faculty",
+                  what: "GPU coursework you can set without asking a class to configure a VPN. Credits are granted per person, and usage is visible per session.",
                 },
-              ].map(({ icon: Icon, title, body }) => (
-                <div key={title} className="flex gap-4">
-                  <div className="flex h-10 w-10 shrink-0 items-center justify-center rounded-lg bg-primary/10 text-primary">
-                    <Icon className="h-5 w-5" />
-                  </div>
-                  <div>
-                    <h3 className="mb-1 font-semibold">{title}</h3>
-                    <p className="text-sm text-muted-foreground">{body}</p>
-                  </div>
+              ].map(({ who, what }) => (
+                <div
+                  key={who}
+                  className="grid gap-1.5 sm:grid-cols-[10rem_minmax(0,1fr)] sm:gap-6"
+                >
+                  <dt className="text-sm font-medium text-foreground">{who}</dt>
+                  <dd className="max-w-prose text-sm text-muted-foreground">
+                    {what}
+                  </dd>
                 </div>
               ))}
-            </div>
+            </dl>
           </div>
         </section>
       </main>
 
       <footer className="border-t border-border px-4 py-8 sm:px-6 lg:px-8">
-        <div className="mx-auto flex max-w-7xl flex-col items-center justify-between gap-3 sm:flex-row">
-          <div className="flex items-center gap-2 text-muted-foreground">
-            <Server className="h-4 w-4" />
-            <span className="text-sm">{siteName}</span>
-          </div>
-          <div className="flex items-center gap-4">
-            <a
-              href="https://github.com/syedahmedkhaderi/sahab"
-              target="_blank"
-              rel="noreferrer"
-              className="text-xs text-muted-foreground underline-offset-4 hover:text-foreground hover:underline"
-            >
-              Open source — deploy your own in one command
-            </a>
-            <p className="text-xs text-muted-foreground">University GPU Compute Platform</p>
-          </div>
+        <div className="mx-auto flex max-w-content flex-col gap-4 sm:flex-row sm:items-end sm:justify-between">
+          <Wordmark showSubtitle />
+          <a
+            href="https://github.com/syedahmedkhaderi/sahab"
+            target="_blank"
+            rel="noreferrer"
+            className="text-xs text-muted-foreground underline decoration-border underline-offset-4 transition-colors hover:text-foreground hover:decoration-current"
+          >
+            Source and deployment instructions on GitHub
+          </a>
         </div>
       </footer>
     </div>

@@ -113,6 +113,10 @@ class SessionCreateRequest(BaseModel):
     resource_type: str = "l4_gpu"  # "l4_gpu" | "cpu"
     image_id: str | None = None
     cpu_fallback: bool = False  # If true, fall back to CPU when GPU unavailable
+    # When every free GPU is busy with work started outside Sahab, the default
+    # is to say so rather than queue behind something we cannot see. Set this
+    # once the user has been told and has chosen to wait anyway.
+    queue_if_busy: bool = False
 
 
 class SessionOut(BaseModel):

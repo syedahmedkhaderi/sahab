@@ -1,58 +1,88 @@
 import React from "react";
-import { Coins, TrendingDown } from "lucide-react";
-import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
-import { Badge } from "@/components/ui/badge";
+import Link from "next/link";
 import { formatCredits } from "@/lib/utils";
+import { cn } from "@/lib/utils";
 
 interface BalanceCardProps {
   balance: number;
+  /** Credits charged per minute of GPU time, when known. */
+  gpuRate?: number | null;
   className?: string;
 }
 
-export function BalanceCard({ balance, className }: BalanceCardProps) {
-  const isLow = balance > 0 && balance < 60; // less than one hour of GPU time
+/**
+ * The balance, and what it buys. A number on its own does not tell a student
+ * whether they can start the run they had in mind — the hours do.
+ */
+export function BalanceCard({ balance, gpuRate, className }: BalanceCardProps) {
+  const rate = gpuRate && gpuRate > 0 ? gpuRate : null;
+  const minutesLeft = rate ? Math.floor(balance / rate) : null;
+
   const isEmpty = balance <= 0;
+  // Under an hour of GPU time left, at the rate actually in force.
+  const isLow = !isEmpty && minutesLeft !== null && minutesLeft < 60;
 
   return (
-    <Card className={className}>
-      <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-2">
-        <CardTitle className="text-sm font-medium text-muted-foreground">
-          Credit Balance
-        </CardTitle>
-        <Coins className="h-4 w-4 text-muted-foreground" />
-      </CardHeader>
-      <CardContent>
-        <div className="flex items-baseline gap-2">
-          <span className="text-3xl font-bold tabular-nums">
-            {formatCredits(balance)}
-          </span>
-          <span className="text-sm text-muted-foreground">credits</span>
-        </div>
-        <div className="mt-2 flex items-center gap-2">
-          {isEmpty && (
-            <Badge variant="destructive" className="flex items-center gap-1">
-              <TrendingDown className="h-3 w-3" />
-              Out of credits
-            </Badge>
+    <section
+      className={cn(
+        "rounded-md border bg-card p-5",
+        isEmpty
+          ? "border-destructive/40"
+          : isLow
+            ? "border-warning/40"
+            : "border-border",
+        className
+      )}
+    >
+      <h2 className="text-sm font-medium text-muted-foreground">Credit balance</h2>
+
+      <p className="mt-2 flex items-baseline gap-2">
+        <span
+          className={cn(
+            "font-mono text-3xl font-semibold tabular-nums",
+            isEmpty ? "text-destructive" : "text-foreground"
           )}
-          {isLow && !isEmpty && (
-            <Badge variant="warning" className="flex items-center gap-1">
-              <TrendingDown className="h-3 w-3" />
-              Low balance
-            </Badge>
-          )}
-          {!isEmpty && !isLow && (
-            <p className="text-xs text-muted-foreground">
-              ~{Math.floor(balance / 60)}h {Math.floor((balance % 60))}m of GPU time remaining
-            </p>
-          )}
-        </div>
-        {isEmpty && (
-          <p className="mt-1 text-xs text-muted-foreground">
-            Contact an administrator to top up your credits.
-          </p>
+        >
+          {formatCredits(balance)}
+        </span>
+        <span className="text-sm text-muted-foreground">credits</span>
+      </p>
+
+      <p className="mt-2 text-sm text-muted-foreground">
+        {isEmpty ? (
+          <>
+            You cannot start a GPU workspace until an administrator grants you
+            more. A CPU workspace is still free to use.
+          </>
+        ) : minutesLeft !== null ? (
+          <>
+            About{" "}
+            <span className="font-medium text-foreground">
+              {formatDuration(minutesLeft)}
+            </span>{" "}
+            of GPU time at {formatCredits(rate!)} credits per minute.
+          </>
+        ) : (
+          <>Charged per minute while a GPU workspace runs.</>
         )}
-      </CardContent>
-    </Card>
+      </p>
+
+      {(isEmpty || isLow) && (
+        <Link
+          href="/billing"
+          className="mt-3 inline-block text-sm font-medium text-primary underline decoration-primary/30 underline-offset-4 hover:decoration-primary"
+        >
+          How to get more credits
+        </Link>
+      )}
+    </section>
   );
+}
+
+function formatDuration(minutes: number): string {
+  if (minutes < 60) return `${minutes} minutes`;
+  const h = Math.floor(minutes / 60);
+  const m = minutes % 60;
+  if (m === 0) return h === 1 ? "1 hour" : `${h} hours`;
+  return `${h}h ${m}m`;
 }

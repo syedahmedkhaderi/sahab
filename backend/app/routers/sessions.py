@@ -65,6 +65,7 @@ async def create_session(
             resource_type=body.resource_type,
             image_id=body.image_id,
             cpu_fallback=body.cpu_fallback,
+            queue_if_busy=body.queue_if_busy,
             settings=settings,
             hub=hub,
         )

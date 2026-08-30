@@ -2,10 +2,9 @@
 
 import React, { useState } from "react";
 import Link from "next/link";
-import { ExternalLink, Square, Clock, Cpu } from "lucide-react";
-import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
+import { ExternalLink, Square } from "lucide-react";
 import { Button } from "@/components/ui/button";
-import { Badge } from "@/components/ui/badge";
+import { useToast } from "@/components/ui/toast";
 import { sessions as sessionsApi } from "@/lib/api";
 import type { Session } from "@/lib/types";
 import { elapsedMinutes, formatDuration } from "@/lib/utils";
@@ -16,26 +15,40 @@ interface SessionCardProps {
   onStopped?: () => void;
 }
 
+/**
+ * The one workspace a user has running. This is the panel someone looks at
+ * while they wait, so each state says what is happening and what to do, rather
+ * than only naming itself.
+ */
 export function SessionCard({ session, onStopped }: SessionCardProps) {
   const [stopping, setStopping] = useState(false);
-  const [error, setError] = useState<string | null>(null);
+  const { toast } = useToast();
 
-  const isActive = ["starting", "running", "queued"].includes(session.state);
+  const isActive = ["requested", "starting", "running", "queued", "stopping"].includes(
+    session.state
+  );
   const isRunning = session.state === "running";
   const isQueued = session.state === "queued";
+  const isGpu = session.resource_type === "l4_gpu";
 
-  const elapsed = session.started_at
-    ? elapsedMinutes(session.started_at)
-    : null;
+  const elapsed = session.started_at ? elapsedMinutes(session.started_at) : null;
 
   const handleStop = async () => {
     setStopping(true);
-    setError(null);
     try {
       await sessionsApi.stop(session.id);
+      toast({
+        tone: "success",
+        title: "Workspace stopped",
+        description: isGpu ? "The GPU is back in the pool." : undefined,
+      });
       onStopped?.();
     } catch (e) {
-      setError(e instanceof Error ? e.message : "Failed to stop session");
+      toast({
+        tone: "error",
+        title: "Could not stop the workspace",
+        description: e instanceof Error ? e.message : "Please try again.",
+      });
       setStopping(false);
     }
   };
@@ -43,76 +56,72 @@ export function SessionCard({ session, onStopped }: SessionCardProps) {
   if (!isActive) return null;
 
   return (
-    <Card>
-      <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-2">
-        <CardTitle className="text-sm font-medium text-muted-foreground">
-          Active Session
-        </CardTitle>
+    <section className="rounded-md border border-border bg-card">
+      <div className="flex items-center justify-between gap-3 border-b border-border px-5 py-3">
+        <h2 className="text-sm font-medium text-foreground">Your workspace</h2>
         <SessionStateBadge state={session.state} />
-      </CardHeader>
-      <CardContent>
-        <div className="space-y-3">
-          {/* Image name */}
-          <div>
-            <p className="text-base font-semibold">
-              {session.image?.name ?? "Workspace"}
-            </p>
-            <div className="mt-1 flex items-center gap-3 text-sm text-muted-foreground">
-              <span className="flex items-center gap-1">
-                <Cpu className="h-3.5 w-3.5" />
-                {session.resource_type === "l4_gpu" ? "GPU (NVIDIA L4)" : "CPU only"}
-              </span>
-              {elapsed !== null && (
-                <span className="flex items-center gap-1">
-                  <Clock className="h-3.5 w-3.5" />
-                  {formatDuration(elapsed)} elapsed
-                </span>
-              )}
-            </div>
-          </div>
+      </div>
 
-          {/* Queue position */}
-          {isQueued && session.queue_pos !== null && (
-            <div className="rounded-md bg-yellow-50 px-3 py-2 text-sm text-yellow-800">
-              Position {session.queue_pos} in GPU queue — you will be notified when a GPU is available.
-            </div>
-          )}
-
-          {error && (
-            <p className="text-sm text-destructive">{error}</p>
-          )}
-
-          {/* Actions */}
-          <div className="flex items-center gap-2 pt-1">
-            {isRunning && session.workspace_url && (
-              <Link href={session.workspace_url} target="_blank">
-                <Button size="sm" className="flex items-center gap-1.5">
-                  <ExternalLink className="h-4 w-4" />
-                  Open Workspace
-                </Button>
-              </Link>
-            )}
-            {isRunning && !session.workspace_url && (
-              <Link href={`/sessions/${session.id}/connect`}>
-                <Button size="sm" className="flex items-center gap-1.5">
-                  <ExternalLink className="h-4 w-4" />
-                  Open Workspace
-                </Button>
-              </Link>
-            )}
-            <Button
-              variant="outline"
-              size="sm"
-              onClick={handleStop}
-              disabled={stopping}
-              className="flex items-center gap-1.5 text-destructive hover:text-destructive"
-            >
-              <Square className="h-4 w-4" />
-              {stopping ? "Stopping..." : "Stop Session"}
-            </Button>
-          </div>
+      <div className="space-y-4 p-5">
+        <div>
+          <p className="text-base font-medium text-foreground">
+            {session.image?.name ?? "Workspace"}
+          </p>
+          <p className="mt-1 font-mono text-sm text-muted-foreground">
+            {isGpu ? "NVIDIA L4" : "CPU only"}
+            {elapsed !== null && ` · ${formatDuration(elapsed)} elapsed`}
+          </p>
         </div>
-      </CardContent>
-    </Card>
+
+        {session.state === "starting" && (
+          <p className="text-sm text-muted-foreground">
+            Pulling the environment and starting your container. This usually
+            takes under a minute.
+          </p>
+        )}
+
+        {isQueued && (
+          <div className="rounded-md border border-warning/30 bg-warning-subtle px-3.5 py-2.5 text-sm text-warning-strong">
+            {session.queue_pos !== null && session.queue_pos !== undefined ? (
+              <>
+                You are number{" "}
+                <span className="font-mono font-medium">{session.queue_pos}</span>{" "}
+                in the queue. Your workspace starts on its own as soon as a GPU
+                frees up — you can leave this page open or come back later.
+              </>
+            ) : (
+              <>
+                Waiting for a GPU. Your workspace starts on its own as soon as one
+                frees up.
+              </>
+            )}
+          </div>
+        )}
+
+        <div className="flex flex-wrap items-center gap-2">
+          {isRunning && (
+            <Button size="sm" asChild>
+              <Link
+                href={session.workspace_url ?? `/sessions/${session.id}/connect`}
+                target={session.workspace_url ? "_blank" : undefined}
+              >
+                <ExternalLink className="h-4 w-4" aria-hidden="true" />
+                Open workspace
+              </Link>
+            </Button>
+          )}
+          <Button
+            variant="outline"
+            size="sm"
+            onClick={handleStop}
+            loading={stopping}
+            className="text-destructive hover:bg-destructive-subtle hover:text-destructive-strong"
+          >
+            {!stopping && <Square className="h-3.5 w-3.5" aria-hidden="true" />}
+            {stopping ? "Stopping" : isQueued ? "Leave the queue" : "Stop workspace"}
+          </Button>
+        </div>
+      </div>
+    </section>
   );
 }

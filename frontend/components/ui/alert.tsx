@@ -3,17 +3,18 @@ import { cva, type VariantProps } from "class-variance-authority";
 import { cn } from "@/lib/utils";
 
 const alertVariants = cva(
-  "relative w-full rounded-lg border p-4 [&>svg~*]:pl-7 [&>svg+div]:translate-y-[-3px] [&>svg]:absolute [&>svg]:left-4 [&>svg]:top-4 [&>svg]:text-foreground",
+  "relative w-full rounded-md border p-3.5 text-sm [&>svg~*]:pl-7 [&>svg+div]:translate-y-[-3px] [&>svg]:absolute [&>svg]:left-4 [&>svg]:top-4 [&>svg]:text-foreground",
   {
     variants: {
       variant: {
-        default: "bg-background text-foreground",
+        default: "border-border bg-card text-foreground [&>svg]:text-muted-foreground",
         destructive:
-          "border-destructive/50 text-destructive dark:border-destructive [&>svg]:text-destructive",
+          "border-destructive/30 bg-destructive-subtle text-destructive-strong [&>svg]:text-destructive",
         warning:
-          "border-yellow-200 bg-yellow-50 text-yellow-900 [&>svg]:text-yellow-700",
+          "border-warning/30 bg-warning-subtle text-warning-strong [&>svg]:text-warning",
         success:
-          "border-green-200 bg-green-50 text-green-900 [&>svg]:text-green-700",
+          "border-success/30 bg-success-subtle text-success-strong [&>svg]:text-success",
+        info: "border-info/30 bg-info-subtle text-info-strong [&>svg]:text-info",
       },
     },
     defaultVariants: {

@@ -3,21 +3,28 @@ import { cva, type VariantProps } from "class-variance-authority";
 import { cn } from "@/lib/utils";
 
 const badgeVariants = cva(
-  "inline-flex items-center rounded-full border px-2.5 py-0.5 text-xs font-semibold transition-colors focus:outline-none focus:ring-2 focus:ring-ring focus:ring-offset-2",
+  // Squared-off rather than a pill: this labels a state in a data table, and a
+  // pill reads as a marketing tag.
+  "inline-flex items-center gap-1.5 rounded-sm border px-2 py-0.5 text-xs font-medium transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2",
   {
     variants: {
       variant: {
         default:
-          "border-transparent bg-primary text-primary-foreground hover:bg-primary/80",
+          "border-transparent bg-primary text-primary-foreground ",
         secondary:
-          "border-transparent bg-secondary text-secondary-foreground hover:bg-secondary/80",
+          "border-transparent bg-secondary text-secondary-foreground ",
         destructive:
-          "border-transparent bg-destructive text-destructive-foreground hover:bg-destructive/80",
-        outline: "text-foreground",
-        success:
-          "border-transparent bg-green-100 text-green-800",
-        warning:
-          "border-transparent bg-yellow-100 text-yellow-800",
+          "border-transparent bg-destructive text-destructive-foreground",
+        outline: "border-border text-foreground",
+        // Tinted ground plus a darkened text tone from the same hue, so the
+        // pair holds contrast in both themes. bg-green-100/bg-yellow-100 were
+        // literal Tailwind colours outside the token system, which is why they
+        // stayed light-mode green on a dark background.
+        success: "border-transparent bg-success-subtle text-success-strong",
+        warning: "border-transparent bg-warning-subtle text-warning-strong",
+        info: "border-transparent bg-info-subtle text-info-strong",
+        danger:
+          "border-transparent bg-destructive-subtle text-destructive-strong",
       },
     },
     defaultVariants: {

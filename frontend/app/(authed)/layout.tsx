@@ -3,6 +3,8 @@
 import React, { useEffect, useState } from "react";
 import { useRouter } from "next/navigation";
 import { Nav } from "@/components/Nav";
+import { ToastProvider } from "@/components/ui/toast";
+import { Skeleton } from "@/components/ui/skeleton";
 import { me } from "@/lib/api";
 import type { User } from "@/lib/types";
 
@@ -24,10 +26,16 @@ export default function AuthedLayout({
       .finally(() => setLoading(false));
   }, [router]);
 
+  // Hold the page's shape while the user loads, rather than a spinner in the
+  // middle of an empty screen — the layout does not jump when content lands.
   if (loading) {
     return (
-      <div className="flex min-h-screen items-center justify-center">
-        <div className="text-muted-foreground">Loading...</div>
+      <div className="min-h-screen bg-background">
+        <div className="h-14 border-b border-border" />
+        <div className="mx-auto max-w-content space-y-6 px-4 py-8 sm:px-6 lg:px-8">
+          <Skeleton className="h-8 w-48" />
+          <Skeleton className="h-36 w-full" />
+        </div>
       </div>
     );
   }
@@ -35,13 +43,13 @@ export default function AuthedLayout({
   if (!user) return null;
 
   return (
-    <div className="min-h-screen bg-background">
-      <Nav user={user} />
-      <main className="mx-auto max-w-7xl px-4 py-8 sm:px-6 lg:px-8">
-        {/* Pass user to child pages via context would be cleaner in a larger app,
-            but for MVP pages fetch their own user data as needed */}
-        {children}
-      </main>
-    </div>
+    <ToastProvider>
+      <div className="min-h-screen bg-background">
+        <Nav user={user} />
+        <main className="mx-auto max-w-content px-4 py-8 sm:px-6 lg:px-8">
+          {children}
+        </main>
+      </div>
+    </ToastProvider>
   );
 }

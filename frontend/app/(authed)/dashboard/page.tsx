@@ -2,8 +2,11 @@
 
 import React, { useCallback, useEffect, useState } from "react";
 import Link from "next/link";
-import { Plus, History } from "lucide-react";
+import { Plus, Server } from "lucide-react";
 import { Button } from "@/components/ui/button";
+import { PageHeader } from "@/components/ui/page-header";
+import { EmptyState } from "@/components/ui/empty-state";
+import { Skeleton } from "@/components/ui/skeleton";
 import { BalanceCard } from "@/components/BalanceCard";
 import { SessionCard } from "@/components/SessionCard";
 import { SessionStateBadge } from "@/components/SessionStateBadge";
@@ -15,16 +18,17 @@ import {
   TableHeader,
   TableRow,
 } from "@/components/ui/table";
-import { me, sessions as sessionsApi } from "@/lib/api";
-import type { User, Session } from "@/lib/types";
+import { me, sessions as sessionsApi, rates as ratesApi } from "@/lib/api";
+import type { User, Session, Rate } from "@/lib/types";
 import { formatDateTime, elapsedMinutes, formatDuration } from "@/lib/utils";
+
+const ACTIVE_STATES = ["requested", "queued", "starting", "running", "stopping"];
 
 export default function DashboardPage() {
   const [user, setUser] = useState<User | null>(null);
   const [sessionList, setSessionList] = useState<Session[]>([]);
+  const [gpuRate, setGpuRate] = useState<number | null>(null);
   const [loading, setLoading] = useState(true);
-
-  const ACTIVE_STATES = ["requested", "queued", "starting", "running", "stopping"];
 
   const fetchData = useCallback(async () => {
     try {
@@ -40,112 +44,135 @@ export default function DashboardPage() {
 
   useEffect(() => {
     fetchData();
-    // Poll while there is an active session
-    const interval = setInterval(() => {
-      fetchData();
-    }, 10_000);
+    // The GPU rate does not change minute to minute, so it is fetched once
+    // rather than on every poll.
+    ratesApi
+      .list()
+      .then((rates: Rate[]) => {
+        const gpu = rates.find((r) => r.resource_type === "l4_gpu");
+        if (gpu) setGpuRate(gpu.credits_per_minute);
+      })
+      .catch(() => {
+        // The balance still reads correctly without it; it just cannot say how
+        // many hours that is.
+      });
+  }, [fetchData]);
+
+  useEffect(() => {
+    const interval = setInterval(fetchData, 10_000);
     return () => clearInterval(interval);
   }, [fetchData]);
 
-  const activeSession = sessionList.find((s) =>
-    ACTIVE_STATES.includes(s.state)
-  );
+  const activeSession = sessionList.find((s) => ACTIVE_STATES.includes(s.state));
   const recentSessions = sessionList
     .filter((s) => s.state === "stopped" || s.state === "failed")
-    .slice(0, 5);
+    .slice(0, 8);
 
   if (loading) {
     return (
-      <div className="flex min-h-[40vh] items-center justify-center text-muted-foreground">
-        Loading dashboard...
+      <div className="space-y-8">
+        <Skeleton className="h-8 w-40" />
+        <div className="grid gap-4 lg:grid-cols-2">
+          <Skeleton className="h-36" />
+          <Skeleton className="h-36" />
+        </div>
+        <Skeleton className="h-48" />
       </div>
     );
   }
 
+  const firstName = user?.full_name?.trim().split(/\s+/)[0];
+
   return (
     <div className="space-y-8">
-      {/* Page heading */}
-      <div className="flex items-center justify-between">
-        <h1 className="text-2xl font-bold">Dashboard</h1>
-        {!activeSession && (
-          <Link href="/launch">
-            <Button className="flex items-center gap-2">
-              <Plus className="h-4 w-4" />
-              Launch Workspace
+      <PageHeader
+        title={firstName ? `Welcome back, ${firstName}` : "Your workspace"}
+        description={
+          activeSession
+            ? "You have one workspace running. Stop it when you are done so the GPU goes back into the pool."
+            : "Start a workspace when you need one. Only one runs at a time."
+        }
+        actions={
+          !activeSession && (
+            <Button asChild>
+              <Link href="/launch">
+                <Plus className="h-4 w-4" aria-hidden="true" />
+                Start a workspace
+              </Link>
             </Button>
-          </Link>
-        )}
-      </div>
+          )
+        }
+      />
 
-      {/* Top cards */}
-      <div className="grid gap-4 sm:grid-cols-2">
-        {user && <BalanceCard balance={user.credit_balance} />}
+      <div className="grid items-start gap-4 lg:grid-cols-2">
+        {user && <BalanceCard balance={user.credit_balance} gpuRate={gpuRate} />}
         {activeSession ? (
           <SessionCard session={activeSession} onStopped={fetchData} />
         ) : (
-          <div className="flex flex-col items-center justify-center rounded-lg border border-dashed border-border p-8 text-center">
-            <p className="text-sm font-medium text-muted-foreground">
-              No active session
-            </p>
-            <Link href="/launch" className="mt-3">
-              <Button size="sm">Launch Workspace</Button>
-            </Link>
-          </div>
+          <EmptyState
+            icon={Server}
+            title="Nothing running"
+            description="A GPU workspace opens JupyterLab with CUDA ready. A CPU workspace is the same environment without a GPU, and costs nothing."
+            action={
+              <Button size="sm" asChild>
+                <Link href="/launch">Start a workspace</Link>
+              </Button>
+            }
+          />
         )}
       </div>
 
-      {/* Recent sessions */}
-      <div>
-        <div className="mb-4 flex items-center gap-2">
-          <History className="h-4 w-4 text-muted-foreground" />
-          <h2 className="text-base font-semibold">Recent Sessions</h2>
-        </div>
+      <section>
+        <h2 className="text-sm font-medium text-foreground">Recent sessions</h2>
 
         {recentSessions.length === 0 ? (
-          <div className="flex min-h-[120px] items-center justify-center rounded-lg border border-border text-sm text-muted-foreground">
-            No past sessions yet.
-          </div>
+          <p className="mt-3 text-sm text-muted-foreground">
+            Sessions you have finished will be listed here, with how long each
+            ran.
+          </p>
         ) : (
-          <Table>
-            <TableHeader>
-              <TableRow>
-                <TableHead>Environment</TableHead>
-                <TableHead>Runtime</TableHead>
-                <TableHead>Started</TableHead>
-                <TableHead>Duration</TableHead>
-                <TableHead>Status</TableHead>
-              </TableRow>
-            </TableHeader>
-            <TableBody>
-              {recentSessions.map((s) => {
-                const duration =
-                  s.started_at && s.ended_at
-                    ? elapsedMinutes(s.started_at, s.ended_at)
-                    : null;
-                return (
-                  <TableRow key={s.id}>
-                    <TableCell className="font-medium">
-                      {s.image?.name ?? "Workspace"}
-                    </TableCell>
-                    <TableCell className="text-muted-foreground">
-                      {s.resource_type === "l4_gpu" ? "GPU" : "CPU"}
-                    </TableCell>
-                    <TableCell className="text-muted-foreground">
-                      {formatDateTime(s.started_at)}
-                    </TableCell>
-                    <TableCell className="text-muted-foreground">
-                      {duration !== null ? formatDuration(duration) : "—"}
-                    </TableCell>
-                    <TableCell>
-                      <SessionStateBadge state={s.state} />
-                    </TableCell>
-                  </TableRow>
-                );
-              })}
-            </TableBody>
-          </Table>
+          <div className="mt-3 overflow-x-auto rounded-md border border-border bg-card">
+            <Table>
+              <TableHeader>
+                <TableRow>
+                  <TableHead>Environment</TableHead>
+                  <TableHead>Hardware</TableHead>
+                  <TableHead>Started</TableHead>
+                  <TableHead>Ran for</TableHead>
+                  <TableHead>Result</TableHead>
+                </TableRow>
+              </TableHeader>
+              <TableBody>
+                {recentSessions.map((s) => {
+                  const duration =
+                    s.started_at && s.ended_at
+                      ? elapsedMinutes(s.started_at, s.ended_at)
+                      : null;
+                  return (
+                    <TableRow key={s.id}>
+                      <TableCell className="font-medium text-foreground">
+                        {s.image?.name ?? "Workspace"}
+                      </TableCell>
+                      <TableCell className="font-mono text-muted-foreground">
+                        {s.resource_type === "l4_gpu" ? "NVIDIA L4" : "CPU"}
+                      </TableCell>
+                      <TableCell className="text-muted-foreground">
+                        {formatDateTime(s.started_at)}
+                      </TableCell>
+                      <TableCell className="font-mono text-muted-foreground">
+                        {duration !== null ? formatDuration(duration) : "—"}
+                      </TableCell>
+                      <TableCell>
+                        <SessionStateBadge state={s.state} />
+                      </TableCell>
+                    </TableRow>
+                  );
+                })}
+              </TableBody>
+            </Table>
+          </div>
         )}
-      </div>
+      </section>
     </div>
   );
 }
