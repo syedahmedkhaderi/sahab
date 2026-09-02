@@ -26,31 +26,49 @@ scrape_configs:
       - targets: ["localhost:9090"]
 
   # NVIDIA DCGM exporter — per-GPU utilization, memory, temperature, power (§17)
+  # The manager's own exporter is reached over the Docker network by name; the
+  # other GPU servers arrive through file_sd below.
   - job_name: dcgm-exporter
     static_configs:
       - targets: ["dcgm-exporter:9400"]
+        labels:
+          sahab_node: manager
     relabel_configs:
-      - source_labels: [__address__]
+      - source_labels: [sahab_node]
         target_label: instance
-        replacement: gpu-server
 
   # Node exporter — host OS metrics (CPU, RAM, disk, network)
   - job_name: node-exporter
     static_configs:
       - targets: ["node-exporter:9100"]
+        labels:
+          sahab_node: manager
     relabel_configs:
-      - source_labels: [__address__]
+      - source_labels: [sahab_node]
         target_label: instance
-        replacement: gpu-server
 
   # cAdvisor — per-container metrics (CPU, memory, network per Docker container)
   - job_name: cadvisor
     static_configs:
       - targets: ["cadvisor:8080"]
+        labels:
+          sahab_node: manager
     relabel_configs:
-      - source_labels: [__address__]
+      - source_labels: [sahab_node]
         target_label: instance
-        replacement: gpu-server
+
+  # The other GPU servers. The backend rewrites nodes.json whenever a machine
+  # joins, is drained, or is removed, and Prometheus picks the change up on its
+  # own — nobody edits this file to add a machine. One job covers all three
+  # exporters because each entry lists all three ports; the port tells them
+  # apart, and sahab_node names the machine.
+  - job_name: sahab-nodes
+    file_sd_configs:
+      - files: ["/etc/prometheus/targets/nodes.json"]
+        refresh_interval: 30s
+    relabel_configs:
+      - source_labels: [sahab_node]
+        target_label: instance
 
   # FastAPI backend — application metrics exposed at /api/metrics
   - job_name: backend

@@ -58,6 +58,12 @@ services:
     image: sahab-backend:latest
     restart: unless-stopped
     env_file: ../.env
+    volumes:
+      # The cluster CA. Read-write here because the backend is what signs a new
+      # machine's Docker certificate when it enrols.
+      - ../secrets:/srv/sahab/secrets
+      # Prometheus file_sd targets, rewritten whenever the node set changes.
+      - prometheus-targets:/srv/sahab/targets
     depends_on:
       postgres:
         condition: service_healthy
@@ -99,6 +105,10 @@ services:
     restart: unless-stopped
     command: ["python", "-m", "app.worker"]
     env_file: ../.env
+    volumes:
+      # Read-only: the worker presents the client certificate to probe nodes,
+      # but never issues one.
+      - ../secrets:/srv/sahab/secrets:ro
     depends_on:
       postgres:
         condition: service_healthy
@@ -160,11 +170,15 @@ services:
       - /var/run/docker.sock:/var/run/docker.sock
       - ../jupyterhub/jupyterhub_config.py:/srv/jupyterhub/jupyterhub_config.py:ro
       - sahab-hub-db:/srv/jupyterhub
+      # nodes.json plus the client certificate the spawner presents to a remote
+      # machine's Docker API. Read-only: the hub consumes this, never writes it.
+      - ../secrets:/srv/sahab/secrets:ro
     environment:
       DOCKER_NETWORK_NAME: ${DOCKER_NETWORK_NAME:-sahab-network}
       WORKSPACE_GPU_IMAGE: ${WORKSPACE_GPU_IMAGE:-sahab-gpu-pytorch:latest}
       WORKSPACE_CPU_IMAGE: ${WORKSPACE_CPU_IMAGE:-sahab-cpu-base:latest}
       SHARED_DATASETS_PATH: ${SHARED_DATASETS_PATH:-/data/shared}
+      SAHAB_NODE_MAP: /srv/sahab/secrets/nodes.json
       JUPYTERHUB_API_TOKEN: ${JUPYTERHUB_API_TOKEN}
       OAUTH_CLIENT_ID: ${OAUTH_CLIENT_ID}
       OAUTH_CLIENT_SECRET: ${OAUTH_CLIENT_SECRET}
@@ -263,6 +277,41 @@ services:
       - "traefik.enable=false"
 
   # ---------------------------------------------------------------------------
+  # Private image registry — how workspace images reach the other GPU servers
+  #
+  # The alternative is rebuilding a 5 GB CUDA image on every machine that joins
+  # (20+ minutes each, and a chance for them to drift). Instead the manager
+  # builds once, pushes here, and every other machine pulls in a couple of
+  # minutes. Served over TLS with a certificate from the cluster's own CA, so
+  # nodes need no `insecure-registries` entry.
+  #
+  # Published on the host so machines that are not yet on the overlay network
+  # (they pull images before joining it) can still reach it.
+  # ---------------------------------------------------------------------------
+  registry:
+    image: registry:2
+    restart: unless-stopped
+    ports:
+      - "${REGISTRY_PORT:-5000}:5000"
+    environment:
+      REGISTRY_HTTP_ADDR: 0.0.0.0:5000
+      REGISTRY_HTTP_TLS_CERTIFICATE: /certs/registry.crt
+      REGISTRY_HTTP_TLS_KEY: /certs/registry.key
+      REGISTRY_STORAGE_DELETE_ENABLED: "true"
+    volumes:
+      - registry-data:/var/lib/registry
+      - ../secrets/docker-ca:/certs:ro
+    networks:
+      - sahab-network
+    healthcheck:
+      test: ["CMD-SHELL", "wget -q --no-check-certificate -O- https://localhost:5000/v2/ || exit 1"]
+      interval: 30s
+      timeout: 5s
+      retries: 3
+    labels:
+      - "traefik.enable=false"
+
+  # ---------------------------------------------------------------------------
   # Prometheus — metrics scraping
   # ---------------------------------------------------------------------------
   prometheus:
@@ -271,6 +320,9 @@ services:
     volumes:
       - ./prometheus/prometheus.yml:/etc/prometheus/prometheus.yml:ro
       - prometheus-data:/prometheus
+      # Written by the backend as machines join and leave, so a new GPU server is
+      # scraped without anyone editing prometheus.yml.
+      - prometheus-targets:/etc/prometheus/targets:ro
     command:
       - "--config.file=/etc/prometheus/prometheus.yml"
       - "--storage.tsdb.path=/prometheus"
@@ -375,8 +427,13 @@ services:
 # ---------------------------------------------------------------------------
 networks:
   sahab-network:
-    name: sahab-network
-    driver: bridge
+    name: ${DOCKER_NETWORK_NAME:-sahab-network}
+    # bridge on a single machine; overlay once this host is a swarm manager, which
+    # is what lets a container on another GPU server reach the hub (and the hub
+    # reach it) without publishing a single port. bootstrap.sh sets the variable
+    # after `docker swarm init`; changing it requires recreating the network,
+    # which bootstrap.sh also handles.
+    driver: ${DOCKER_NETWORK_DRIVER:-bridge}
     attachable: true  # allows JupyterHub-spawned sibling containers to join
 
 # ---------------------------------------------------------------------------
@@ -388,4 +445,6 @@ volumes:
   sahab-hub-db:
   grafana-data:
   prometheus-data:
+  prometheus-targets:
+  registry-data:
   traefik-certs:

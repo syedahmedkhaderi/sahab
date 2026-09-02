@@ -1,0 +1,61 @@
+---
+# Sahab — services that run on a *worker* GPU server.
+#
+# A worker node runs no control plane: no database, no API, no hub. It runs
+# workspace containers (started remotely by the hub over the Docker API) plus
+# these three exporters, which are the only way the manager can see how busy the
+# machine's GPUs actually are.
+#
+# Started by scripts/join_node.sh; you should not need to run it by hand.
+#   docker compose -f infra/docker-compose.node.yml up -d
+
+name: sahab-node
+
+services:
+  # NVIDIA DCGM exporter — per-GPU utilisation and memory.
+  # The scheduler reads this before handing out a GPU: a card that is free in the
+  # database but busy with a job someone started outside Sahab must not be given
+  # away, and this is the only thing that can tell the difference.
+  dcgm-exporter:
+    image: nvcr.io/nvidia/k8s/dcgm-exporter:3.3.5-3.4.0-ubuntu22.04
+    restart: unless-stopped
+    runtime: nvidia
+    environment:
+      NVIDIA_VISIBLE_DEVICES: all
+    cap_add:
+      - SYS_ADMIN
+    ports:
+      # Published on the private address only — the manager scrapes it across the
+      # LAN (or the VPN), never the public internet.
+      - "${NODE_ADVERTISE_ADDR:-0.0.0.0}:9400:9400"
+
+  # Host OS metrics: CPU, RAM, disk. Disk especially — session volumes are
+  # deleted when a session ends, but nothing enforces a per-session quota, so a
+  # runaway job filling the disk is a real failure mode worth watching.
+  node-exporter:
+    image: prom/node-exporter:v1.8.1
+    restart: unless-stopped
+    pid: host
+    volumes:
+      - /proc:/host/proc:ro
+      - /sys:/host/sys:ro
+      - /:/rootfs:ro
+    command:
+      - "--path.procfs=/host/proc"
+      - "--path.sysfs=/host/sys"
+      - "--collector.filesystem.mount-points-exclude=^/(sys|proc|dev|host|etc)($$|/)"
+    ports:
+      - "${NODE_ADVERTISE_ADDR:-0.0.0.0}:9100:9100"
+
+  # Per-container metrics, so a single workspace's CPU and memory use is visible.
+  cadvisor:
+    image: gcr.io/cadvisor/cadvisor:v0.49.1
+    restart: unless-stopped
+    privileged: true
+    volumes:
+      - /:/rootfs:ro
+      - /var/run:/var/run:ro
+      - /sys:/sys:ro
+      - /var/lib/docker/:/var/lib/docker:ro
+    ports:
+      - "${NODE_ADVERTISE_ADDR:-0.0.0.0}:8080:8080"

@@ -63,6 +63,14 @@ die()  { printf "%s[fail]%s %s\n" "$R" "$N" "$1" >&2; exit 1; }
 load_shared_lib() {
   # shellcheck source=lib/tunnel.sh
   source "$SAHAB_DIR/scripts/lib/tunnel.sh"
+  # install_prereqs, need_root, detect_advertise_addr, ensure_swarm_manager —
+  # shared verbatim with scripts/join_node.sh so the two ways of standing up a
+  # machine cannot drift apart.
+  # shellcheck source=lib/common.sh
+  source "$SAHAB_DIR/scripts/lib/common.sh"
+  # shellcheck source=lib/pki.sh
+  source "$SAHAB_DIR/scripts/lib/pki.sh"
+  export SAHAB_SKIP_PREREQS
 }
 
 usage() { sed -n '2,/^set -euo/p' "$0" | sed 's/^# \{0,1\}//; s/^#$//' | sed '$d'; exit 0; }
@@ -90,16 +98,10 @@ done
   die "--token requires --hostname (the public hostname mapped to that tunnel)."
 
 # ----------------------------------------------------------------------------- helpers
+# have() / need_root() / SUDO are defined in scripts/lib/common.sh, which is
+# sourced once the repo is on disk. This minimal copy covers the pre-clone stage.
 have() { command -v "$1" >/dev/null 2>&1; }
-
 SUDO=""
-need_root() {
-  if [[ "$(id -u)" -eq 0 ]]; then SUDO=""
-  elif have sudo && sudo -n true 2>/dev/null; then SUDO="sudo"
-  elif have sudo; then SUDO="sudo"; warn "sudo may prompt for your password."
-  else die "Need root or sudo to install system packages. Re-run as root, or pass --skip-prereqs if Docker + NVIDIA toolkit are already installed."
-  fi
-}
 
 # set_env / get_env / dc / publish_quick_tunnel come from scripts/lib/tunnel.sh,
 # sourced by load_shared_lib once the repo is on disk.
@@ -117,66 +119,28 @@ gen_secret() {
 }
 
 # ----------------------------------------------------------------------------- 1. prereqs
-install_prereqs() {
-  step "Checking host prerequisites"
-  if [[ "$SAHAB_SKIP_PREREQS" == "1" ]]; then warn "skipping prereq install (--skip-prereqs)"; return; fi
-
-  if ! have apt-get; then
-    warn "Non-apt host: cannot auto-install. Ensure git, openssl, Docker (with compose v2) and the NVIDIA Container Toolkit are present."
-    return
-  fi
-
-  local missing=()
-  have git || missing+=(git)
-  have curl || missing+=(curl)
-  have openssl || missing+=(openssl)
-  if ((${#missing[@]})); then
-    need_root
-    $SUDO apt-get update -y
-    $SUDO apt-get install -y "${missing[@]}" ca-certificates
-    ok "installed: ${missing[*]}"
-  else ok "git, curl, openssl present"; fi
-
-  if ! have docker; then
-    need_root
-    step "Installing Docker Engine (get.docker.com)"
-    curl -fsSL https://get.docker.com | $SUDO sh
-    $SUDO usermod -aG docker "$USER" 2>/dev/null || true
-    ok "Docker installed (you may need to re-login for group membership)"
-  else ok "Docker present: $(docker --version)"; fi
-
-  if ! docker compose version >/dev/null 2>&1; then
-    warn "Docker Compose v2 plugin not found; attempting install."
-    need_root; $SUDO apt-get install -y docker-compose-plugin || \
-      die "Could not install docker compose v2. Install it, then re-run."
-  fi
-  ok "Docker Compose v2 present"
-
-  # NVIDIA Container Toolkit — only if a GPU/driver is present and toolkit missing.
-  if have nvidia-smi; then
-    if docker info 2>/dev/null | grep -qi nvidia || \
-       docker run --rm --gpus all nvidia/cuda:12.4.1-base-ubuntu22.04 nvidia-smi -L >/dev/null 2>&1; then
-      ok "NVIDIA Container Toolkit already working"
-    else
-      need_root
-      step "Installing NVIDIA Container Toolkit"
-      curl -fsSL https://nvidia.github.io/libnvidia-container/gpgkey | \
-        $SUDO gpg --dearmor -o /usr/share/keyrings/nvidia-container-toolkit-keyring.gpg
-      curl -fsSL https://nvidia.github.io/libnvidia-container/stable/deb/nvidia-container-toolkit.list | \
-        sed 's#deb https://#deb [signed-by=/usr/share/keyrings/nvidia-container-toolkit-keyring.gpg] https://#g' | \
-        $SUDO tee /etc/apt/sources.list.d/nvidia-container-toolkit.list >/dev/null
-      $SUDO apt-get update -y
-      $SUDO apt-get install -y nvidia-container-toolkit
-      $SUDO nvidia-ctk runtime configure --runtime=docker
-      $SUDO systemctl restart docker
-      ok "NVIDIA Container Toolkit installed and wired into Docker"
-    fi
-  else
-    warn "nvidia-smi not found — host has no NVIDIA driver. GPU sessions will not work until a driver is installed."
-  fi
-}
+# install_prereqs() and need_root() come from scripts/lib/common.sh, shared with
+# join_node.sh. They are only available after the clone, so main() calls them
+# after clone_or_update rather than before.
 
 # ----------------------------------------------------------------------------- 2. repo
+# Minimum needed to fetch the repo, before the shared library exists on disk.
+# Everything else (Docker, compose, the NVIDIA toolkit) is installed by
+# install_prereqs() from scripts/lib/common.sh once the clone is present.
+ensure_clone_tools() {
+  have git && have curl && return 0
+  if ! have apt-get; then
+    die "git and curl are required to fetch Sahab, and this host has no apt-get to install them with."
+  fi
+  if [[ "$(id -u)" -ne 0 ]]; then
+    have sudo || die "Need root or sudo to install git/curl."
+    SUDO="sudo"
+  fi
+  $SUDO apt-get update -y
+  $SUDO apt-get install -y git curl ca-certificates
+  ok "installed git and curl"
+}
+
 clone_or_update() {
   step "Fetching Sahab into $SAHAB_DIR"
   if [[ -d "$SAHAB_DIR/.git" ]]; then
@@ -231,6 +195,126 @@ generate_env() {
   return 0
 }
 
+# ----------------------------------------------------------------------------- 3b. cluster
+# Everything needed before another GPU server can join: swarm membership, the
+# cluster CA, the private registry, and the overlay network.
+#
+# All of it is harmless on a machine that stays single-VM forever — a one-node
+# swarm behaves exactly like no swarm — so it runs unconditionally rather than
+# behind a flag nobody would remember to set.
+setup_cluster() {
+  step "Preparing this machine to accept other GPU servers"
+
+  local advertise
+  advertise="$(get_env MANAGER_ADVERTISE_ADDR)"
+  if [[ -z "$advertise" ]]; then
+    advertise="$(detect_advertise_addr)"
+    [[ -z "$advertise" ]] && die "Could not work out this machine's address. Set MANAGER_ADVERTISE_ADDR in .env and re-run."
+  fi
+  set_env MANAGER_ADVERTISE_ADDR "$advertise"
+  set_env MANAGER_NODE_NAME "$(hostname)"
+  ok "other machines will reach this one at $advertise"
+
+  local worker_token
+  worker_token="$(ensure_swarm_manager "$advertise")"
+  # A token that is not a token is worse than no token: it is written to .env,
+  # handed to a machine that tries to join, and fails there instead of here.
+  [[ "$worker_token" == SWMTKN-* ]] \
+    || die "Could not read the swarm worker join token (got: ${worker_token:0:40})."
+  set_env SWARM_WORKER_TOKEN "$worker_token"
+
+  # The overlay network is what lets a container on another machine reach the hub
+  # (and the hub reach it) without publishing a single port.
+  set_env DOCKER_NETWORK_DRIVER overlay
+  migrate_network_driver
+
+  local registry_port; registry_port="$(get_env REGISTRY_PORT)"
+  [[ -z "$registry_port" ]] && { registry_port=5000; set_env REGISTRY_PORT "$registry_port"; }
+  set_env REGISTRY_ADDR "${advertise}:${registry_port}"
+
+  ensure_pki "$SAHAB_DIR/secrets" "$advertise"
+  # ensure_pki writes as whoever ran bootstrap; the backend reads and writes the
+  # same directory from inside its container as uid 1001.
+  chown_to_container "$SAHAB_DIR/secrets"
+
+  # The images must be named for the registry, or another machine cannot pull them.
+  set_env WORKSPACE_GPU_IMAGE "${advertise}:${registry_port}/sahab-gpu-pytorch:latest"
+  set_env WORKSPACE_CPU_IMAGE "${advertise}:${registry_port}/sahab-cpu-base:latest"
+
+  trust_own_registry "$advertise" "$registry_port"
+}
+
+# Docker only trusts a registry whose CA sits under /etc/docker/certs.d, which is
+# root-owned. Not being able to write it is not fatal — it costs the image push,
+# and everything else still works — so it warns with the exact command instead of
+# stopping a bootstrap that is otherwise fine.
+trust_own_registry() {
+  local advertise="$1" registry_port="$2"
+  local dest="/etc/docker/certs.d/${advertise}:${registry_port}"
+  local src="$SAHAB_DIR/secrets/docker-ca/ca.crt"
+
+  if [[ -f "$dest/ca.crt" ]] && cmp -s "$src" "$dest/ca.crt"; then
+    ok "this machine already trusts its own registry"
+    return 0
+  fi
+
+  if [[ "$(id -u)" -eq 0 ]] || sudo -n true 2>/dev/null; then
+    need_root
+    $SUDO mkdir -p "$dest"
+    $SUDO cp "$src" "$dest/ca.crt"
+    ok "this machine trusts its own registry"
+    return 0
+  fi
+
+  warn "could not write $dest (needs root)."
+  warn "Workspace images will not reach the other GPU servers until you run:"
+  warn "  sudo mkdir -p '$dest' && sudo cp '$src' '$dest/ca.crt'"
+  return 0
+}
+
+# Compose refuses to change an existing network's driver in place. Switching from
+# bridge to overlay therefore needs the old network removed, which needs the
+# containers on it stopped first.
+migrate_network_driver() {
+  local net; net="$(get_env DOCKER_NETWORK_NAME)"; net="${net:-sahab-network}"
+  local current
+  current="$(docker network inspect "$net" --format '{{.Driver}}' 2>/dev/null || echo "")"
+  [[ -z "$current" || "$current" == "overlay" ]] && return 0
+
+  warn "the $net network is a $current network and has to be recreated as an overlay"
+  warn "this restarts the platform once; running sessions will be stopped"
+  dc down --remove-orphans 2>/dev/null || true
+  docker network rm "$net" >/dev/null 2>&1 || true
+  ok "network removed; it will be recreated as an overlay"
+}
+
+# ----------------------------------------------------------------------------- 3c. schema
+# Bring the database schema up to date.
+#
+# Historically the app relied on create_all at startup, which can create tables
+# but cannot add a column to one that already exists — so an existing install
+# would never gain gpu_inventory.node_id. Migrations run here, before the backend
+# starts, so both a fresh database and an existing one end up in the same place.
+migrate_database() {
+  step "Applying database migrations"
+  dc up -d postgres
+  local tries=0
+  until dc exec -T postgres pg_isready -q 2>/dev/null; do
+    tries=$((tries + 1)); [[ $tries -gt 60 ]] && die "Postgres did not become ready."
+    sleep 1
+  done
+
+  if dc run --rm --no-deps -T backend alembic upgrade head; then
+    ok "schema up to date"
+  else
+    warn "alembic could not apply migrations cleanly."
+    warn "If this database was built by an older Sahab, the tables may already"
+    warn "match the latest schema. Check with:"
+    warn "  dc exec postgres psql -U \$POSTGRES_USER -d \$POSTGRES_DB -c '\\d gpu_inventory'"
+    die "Refusing to continue with an uncertain schema."
+  fi
+}
+
 # ----------------------------------------------------------------------------- 4. preflight
 run_preflight() {
   step "Host preflight (driver / Docker / GPU-in-container)"
@@ -247,6 +331,35 @@ build_images() {
   warn "first build downloads CUDA + PyTorch (~5 GB, 15-25 min). Re-runs are cached."
   bash "$SAHAB_DIR/scripts/build_images.sh"
   ok "images built and smoke-tested"
+}
+
+# Push the workspace images to the private registry so every other GPU server can
+# pull them instead of rebuilding a 5 GB CUDA image of its own.
+push_images() {
+  step "Publishing the workspace images to the registry"
+  if [[ "$SAHAB_SKIP_BUILD" == "1" ]]; then warn "skipping push (--skip-build)"; return 0; fi
+
+  dc up -d registry
+  local tries=0
+  until curl -fsS --cacert "$SAHAB_DIR/secrets/docker-ca/ca.crt" \
+        "https://$(get_env REGISTRY_ADDR)/v2/" >/dev/null 2>&1; do
+    tries=$((tries + 1))
+    if [[ $tries -gt 30 ]]; then
+      warn "the registry did not come up; other machines will not be able to pull images."
+      return 0
+    fi
+    sleep 1
+  done
+
+  local pair
+  for pair in "sahab-gpu-pytorch:latest $(get_env WORKSPACE_GPU_IMAGE)" \
+              "sahab-cpu-base:latest $(get_env WORKSPACE_CPU_IMAGE)"; do
+    local local_ref remote_ref
+    local_ref="${pair%% *}"; remote_ref="${pair##* }"
+    [[ -z "$remote_ref" ]] && continue
+    docker tag "$local_ref" "$remote_ref" 2>/dev/null || { warn "no local $local_ref to push"; continue; }
+    if docker push "$remote_ref" >/dev/null; then ok "pushed $remote_ref"; else warn "could not push $remote_ref"; fi
+  done
 }
 
 # ----------------------------------------------------------------------------- compose wrapper
@@ -314,11 +427,18 @@ summary() {
 # ----------------------------------------------------------------------------- main
 main() {
   printf "%s\n  Sahab bootstrap — one-command GPU platform deploy\n%s\n" "$B" "$N"
-  install_prereqs
+  ensure_clone_tools
   clone_or_update
+  # install_prereqs lives in the repo (shared with join_node.sh), so the clone
+  # has to come first.
+  load_shared_lib
+  install_prereqs
   generate_env
+  setup_cluster
   run_preflight
   build_images
+  push_images
+  migrate_database
   expose
   wait_healthy
   summary

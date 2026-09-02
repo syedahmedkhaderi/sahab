@@ -22,9 +22,19 @@ die()  { printf "%s[fail]%s %s\n" "$R" "$N" "$1" >&2; exit 1; }
 
 # ----------------------------------------------------------------------------- env file
 # Update KEY=VALUE in $ENV_FILE (append if absent). Values must not contain '|' or '&'.
+#
+# A value containing a newline is refused rather than written. sed treats a
+# newline in the replacement as a line break, so one would silently split the
+# value across two lines and leave an orphan line that is not a KEY=VALUE pair —
+# which every consumer of the file then chokes on, far away from the cause. This
+# is not hypothetical: a helper that logged to stdout once had its log line
+# captured into a token and written here exactly that way.
 ENV_FILE="${ENV_FILE:-}"
 set_env() {
   local key="$1" val="$2"
+  if [[ "$val" == *$'\n'* ]]; then
+    die "Refusing to write a multi-line value into .env for $key: ${val%%$'\n'*}…"
+  fi
   if grep -qE "^${key}=" "$ENV_FILE"; then
     sed -i -E "s|^${key}=.*|${key}=${val}|" "$ENV_FILE"
   else
