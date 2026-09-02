@@ -40,3 +40,12 @@ pgdata/
 # signs every GPU server's Docker API certificate — committing it would hand
 # anyone with the repo root on all of them.
 secrets/
+
+# Local AI-assistant tooling: skills, hooks and settings installed per machine.
+# These belong to the workstation, not the project, and are large enough to
+# swamp the repository.
+.agent/
+.agents/
+.claude/
+.gemini/
+.codex/
