@@ -24,6 +24,12 @@ dependencies = [
     "email-validator==2.2.0",
     "python-multipart==0.0.18",
     "bcrypt==4.0.1",
+    # Node PKI (the cluster's own CA) and encryption of stored SSH credentials.
+    # Pulled in transitively by python-jose already; pinned because we now use
+    # its x509 and Fernet APIs directly.
+    "cryptography==44.0.0",
+    # Runs the join script on a new GPU server when an admin adds it by IP.
+    "asyncssh==2.18.0",
 ]
 
 [project.optional-dependencies]

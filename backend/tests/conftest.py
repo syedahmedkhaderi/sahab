@@ -5,6 +5,7 @@ Test fixtures: in-memory SQLite + fakeredis, no real Postgres/Redis/Hub needed.
 from __future__ import annotations
 
 import asyncio
+from datetime import datetime, timezone
 from unittest.mock import AsyncMock, MagicMock, patch
 
 import fakeredis.aioredis as fakeredis
@@ -15,7 +16,17 @@ from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker, create_asyn
 
 from app.db import Base, get_db
 from app.main import create_app
-from app.models import GpuInventory, GpuStatus, Image, Rate, User, UserRole, UserStatus
+from app.models import (
+    GpuInventory,
+    GpuStatus,
+    Image,
+    Node,
+    NodeStatus,
+    Rate,
+    User,
+    UserRole,
+    UserStatus,
+)
 from app.security import hash_password
 from app.services.credits import grant_credits
 
@@ -166,10 +177,54 @@ async def admin_user(db_session: AsyncSession) -> User:
 
 
 @pytest_asyncio.fixture(scope="function")
-async def gpu_inventory(db_session: AsyncSession) -> list[GpuInventory]:
+async def manager_node(db_session: AsyncSession) -> Node:
+    """The control-plane machine. Every GPU has to live in some machine."""
+    node = Node(
+        name="test-manager",
+        display_name="Control plane",
+        address="",
+        is_manager=True,
+        status=NodeStatus.ready,
+        enrolled_at=datetime.now(tz=timezone.utc),
+        last_seen_at=datetime.now(tz=timezone.utc),
+    )
+    db_session.add(node)
+    await db_session.flush()
+    await db_session.commit()
+    return node
+
+
+@pytest_asyncio.fixture(scope="function")
+async def worker_node(db_session: AsyncSession) -> Node:
+    """A second machine: enrolled, reachable, and taking work.
+
+    enrolled_at matters. A machine that has never enrolled is deliberately not
+    health-checked, so a fixture that is 'ready' without it models a state the
+    system cannot actually reach — and would quietly opt every health test out.
+    """
+    node = Node(
+        name="test-worker",
+        display_name="Worker 1",
+        address="10.0.0.9",
+        docker_port=2376,
+        metrics_url="http://10.0.0.9:9400/metrics",
+        is_manager=False,
+        status=NodeStatus.ready,
+        enrolled_at=datetime.now(tz=timezone.utc),
+        last_seen_at=datetime.now(tz=timezone.utc),
+    )
+    db_session.add(node)
+    await db_session.flush()
+    await db_session.commit()
+    return node
+
+
+@pytest_asyncio.fixture(scope="function")
+async def gpu_inventory(db_session: AsyncSession, manager_node: Node) -> list[GpuInventory]:
     gpus = [
         GpuInventory(
             gpu_uuid=f"GPU-fake-uuid-{i}",
+            node_id=manager_node.id,
             model="NVIDIA L4",
             vram_mb=24576,
             status=GpuStatus.free,

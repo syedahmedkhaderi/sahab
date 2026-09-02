@@ -24,6 +24,17 @@ COPY alembic.ini .
 
 # Non-root user
 RUN useradd -m -u 1001 sahab && chown -R sahab:sahab /app
+
+# Pre-create the mount points the app writes to, owned by the app's user.
+# Docker seeds a named volume from the image's directory when it first creates
+# it, so making /srv/sahab/targets exist here is what makes the Prometheus
+# target file writable — a volume created against a missing path comes up
+# root-owned and the app cannot write it.
+# (/srv/sahab/secrets is a host bind mount and keeps the host's ownership; the
+#  bootstrap hands that one to this uid.)
+RUN mkdir -p /srv/sahab/targets /srv/sahab/secrets \
+    && chown -R sahab:sahab /srv/sahab
+
 USER sahab
 
 # ---- API server (default CMD) ----

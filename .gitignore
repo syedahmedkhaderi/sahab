@@ -35,3 +35,8 @@ pgdata/
 .DS_Store
 .idea/
 *.swp
+
+# The cluster's certificate authority and the node map. secrets/docker-ca/ca.key
+# signs every GPU server's Docker API certificate — committing it would hand
+# anyone with the repo root on all of them.
+secrets/
