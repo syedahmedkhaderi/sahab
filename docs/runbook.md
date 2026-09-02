@@ -26,9 +26,21 @@ Admin console → Sessions → Stop, or `POST /api/admin/sessions/{id}/stop`. Re
 Build + smoke-test (`scripts/build_images.sh`), then enable via admin. Disable a bad image with `enabled=false` — it stays for history but can't be launched.
 
 ### Re-seed GPU inventory (after hardware change)
-```bash
-scripts/discover_gpus.sh --sql | docker compose --env-file .env -f infra/docker-compose.yml exec -T postgres sh -lc 'psql -U "$POSTGRES_USER" -d "$POSTGRES_DB"'
-```
+Re-run the join command on that machine — it re-reports its GPUs and the
+inventory is reconciled. A card that stops being reported is marked `disabled`
+rather than deleted, because lease history refers to it.
+
+### Take a GPU server out of service
+Admin console → VMs → drain (the pause icon). Running sessions finish; nothing
+new is placed there. Once it is empty, remove it. Never delete a machine with
+live sessions — the console refuses, and forcing it would strand their leases.
+
+### A GPU server has died
+The worker notices within a minute and marks it `unreachable`. After the grace
+period (`NODE_UNREACHABLE_GRACE_SECONDS`, 5 minutes) its sessions are failed,
+their leases released, and its GPUs taken out of the pool. Nothing to do by
+hand. When it comes back the node returns to `ready` and its GPUs rejoin the
+pool, except any still holding an open lease.
 
 ## Incident playbooks
 
@@ -38,6 +50,19 @@ scripts/discover_gpus.sh --sql | docker compose --env-file .env -f infra/docker-
 | GPU shows `leased` but no session | Crash between lease and spawn | Reconcile: close orphan lease, set GPU `free`, re-run queue drain. |
 | Credits not deducting | Worker not ticking | `docker compose logs worker`; alert "metering worker not ticking" should fire. Restart worker. |
 | GPU pinned at 100% with no notebook activity | Possible mining / runaway job | Cross-ref DCGM busy vs kernel activity; warn user; admin force-stop per AUP. |
+| A machine stays `pending` after the join command ran | The script failed before enrolling | Read the install log (Admin → VMs, SSH path) or the script's output on the machine. Re-run the command; it is idempotent. |
+| A machine reaches `enrolling` but never `ready` | The manager cannot reach its Docker API on 2376 | The 502 from `/api/nodes/enroll/complete` names the address it tried. Check the firewall between the machines, then `journalctl -u docker` on the node. |
+| Workspaces fail on a new machine with an image error | It cannot pull from the private registry | Check `/etc/docker/certs.d/<registry>/ca.crt` exists on that machine, and that the registry answers on port 5000 from it. |
+| A user asks where their notebooks went | Storage is session-scoped by design | Files live only for the session; there is no recovery. This is stated on the launch form, in the workspace, and on the stop confirmation. |
+
+## Known dead code
+
+`/verify` (`frontend/app/verify/page.tsx`) calls `POST /api/auth/verify`, which
+no router serves. Nothing sends a verification email either — signup is gated by
+admin approval (`REQUIRE_ADMIN_APPROVAL`), not by email confirmation — so the
+page is unreachable except by typing the URL, and can only ever show an error.
+Either build email verification or delete the page; leaving it is the worst of
+the three.
 | User can't log into workspace | OAuth/cookie/domain mismatch | Confirm single parent domain; check `OAUTH_CLIENT_*` and hub authenticator config. |
 | All GPUs busy, third user waiting | Expected | User is queued (visible position) or took CPU now; auto-promoted when a GPU frees. |
 

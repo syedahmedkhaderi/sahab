@@ -48,7 +48,10 @@ Metering starts at `running`. `failed` must always release any GPU lease.
 
 ## Data model
 
-See blueprint §12 and `backend/app/models.py`: `users, gpu_inventory, images, rates, sessions, gpu_leases, credit_ledger, transactions, audit_log`.
+See blueprint §12 and `backend/app/models.py`: `users, nodes, node_enrollments, gpu_inventory, images, rates, sessions, gpu_leases, credit_ledger, transactions, audit_log`.
+
+`gpu_inventory.node_id` is the one that carries the multi-machine story: a GPU
+UUID is only meaningful on the machine the card is in, so a lease names both.
 
 ## Key invariants (do not break)
 

@@ -38,12 +38,59 @@ bash scripts/build_images.sh
 docker compose --env-file .env -f infra/docker-compose.yml up -d --build
 # Add --profile cloudflare once CLOUDFLARE_TUNNEL_TOKEN is set.
 
-# 4. Initialize the database (first run)
-docker compose --env-file .env -f infra/docker-compose.yml exec backend alembic upgrade head
-
-# 5. Seed GPU inventory from the real hardware
-scripts/discover_gpus.sh --sql | docker compose --env-file .env -f infra/docker-compose.yml exec -T postgres sh -lc 'psql -U "$POSTGRES_USER" -d "$POSTGRES_DB"'
+# 4. Initialize the database (first run, and after every update)
+docker compose --env-file .env -f infra/docker-compose.yml run --rm --no-deps -T backend alembic upgrade head
 ```
+
+Nothing seeds `gpu_inventory` by hand any more. The control-plane machine is
+registered as the first node at startup, and its GPUs — like every other
+machine's — are registered when the machine enrols. `scripts/discover_gpus.sh`
+still exists, and the join script uses it, but you should not need to pipe SQL
+into Postgres to add a GPU.
+
+## Adding another GPU server
+
+Two ways, both running the same script so they cannot drift apart.
+
+**From the machine.** Admin console → VMs → Add VM → *Give me a command*. Paste
+the one-liner it shows on the new server. It installs Docker and the NVIDIA
+toolkit, joins the cluster, opens a mutually authenticated Docker API for the
+control plane, pulls the workspace images and registers its GPUs. About ten
+minutes.
+
+**From the console.** Admin console → VMs → Add VM → *Install over SSH*. Give the
+IP, an account with sudo, and a password or private key; Sahab runs the same
+command itself and streams the output. The credential is stored encrypted (with
+`SECRETS_KEY`) so upgrades can be re-run later.
+
+What has to be reachable between the machines:
+
+| Port | Direction | Why |
+|---|---|---|
+| 2377/tcp, 7946/tcp+udp, 4789/udp | node → manager | swarm membership and the encrypted overlay network |
+| 2376/tcp | manager → node | the spawner starts and stops containers there (mutual TLS) |
+| 9400, 9100, 8080 | manager → node | DCGM, host and container metrics |
+| 5000/tcp | node → manager | pulling workspace images from the private registry |
+| 443/tcp | node → manager | the enrollment API |
+
+A machine on a **different network** cannot reach a manager published only
+through a Cloudflare quick tunnel. For that case the join script takes
+`--vpn tailscale --vpn-key <key>`, which puts both machines on one network first;
+the console exposes it as the optional Tailscale field.
+
+### Trust, briefly
+
+The manager runs a small certificate authority (`secrets/docker-ca/`, created by
+`bootstrap.sh`). It signs each machine's Docker API certificate and the
+registry's, because a public CA cannot issue for private IPs. The join token is
+single-use, expires in 24 hours, and is stored only as a SHA-256 hash. A
+machine's GPUs enter the pool only after the control plane has proved it can
+open a mutually authenticated connection to that machine — so a node that reads
+"Ready" is one that can actually start a workspace.
+
+The `secrets/` directory is owned by the backend container's uid (1001) and is
+mode 0711: private keys inside stay 0600, while `ca.crt` — a public certificate —
+can still be read by the host's own scripts.
 
 ## Exposure strategies (blueprint §6)
 

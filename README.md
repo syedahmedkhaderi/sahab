@@ -34,7 +34,8 @@ sahab/
   jupyterhub/   JupyterHub image + config (DockerSpawner, NVIDIA runtime, OAuth)
   images/       Workspace images: gpu-pytorch (CUDA+PyTorch), cpu-base
   infra/        docker-compose.yml + Traefik, cloudflared, Prometheus, Grafana config
-  scripts/      preflight.sh, discover_gpus.sh, build_images.sh
+  scripts/      bootstrap.sh (set up the control plane), join_node.sh (add a GPU server),
+                preflight.sh, discover_gpus.sh, build_images.sh, tunnel.sh
   docs/         architecture, deployment, runbook
   .env.example  configuration template
 ```
@@ -76,6 +77,37 @@ curl -fsSL https://raw.githubusercontent.com/syedahmedkhaderi/sahab/main/scripts
 
 Useful flags: `--no-tunnel` (LAN-only), `--skip-build` (reuse images), `--dir <path>`,
 `--admin-email <email>`, `--signup-domains <csv>`. Run with `--help` for the full list.
+
+## Adding more GPU servers
+
+One Sahab can use the GPUs in several machines. The website, login, credits,
+billing and the public link are unchanged — only where a workspace runs changes.
+
+Admin console → **VMs** → **Add VM**, then either:
+
+- **Give me a command** — paste the one-liner it shows on the new server:
+
+  ```bash
+  curl -fsSL https://raw.githubusercontent.com/syedahmedkhaderi/sahab/main/scripts/join_node.sh \
+    | sudo bash -s -- --server https://sahab.example.com --token <TOKEN>
+  ```
+
+- **Install over SSH** — give the IP and a sudo login, and Sahab runs that same
+  command itself, streaming the output into the console.
+
+Either way it installs Docker and the NVIDIA toolkit, joins the cluster, pulls
+the workspace images from the manager's private registry and registers its GPUs.
+About ten minutes, and it is safe to re-run as the upgrade path. Users are then
+placed on whichever machine has a free GPU, automatically.
+
+The machines need to reach each other on a private network; for one that cannot,
+the join script takes `--vpn tailscale --vpn-key <key>`. Details, ports and the
+trust model are in [docs/deployment.md](./docs/deployment.md).
+
+> **Storage is session-scoped**, like Colab. Files written in a workspace are
+> deleted when the session ends. That is what lets a user be placed on any
+> machine without their notebooks having to follow them — and it is why the
+> launch form, the workspace and the stop confirmation all say so.
 
 ### Getting a new public link
 
@@ -137,7 +169,7 @@ The original `sahab_phase1_setup.sh` writes a minimal JupyterHub-only stack to `
 
 ## Security & operations
 
-See [docs/](./docs/): `architecture.md`, `deployment.md`, `runbook.md`. Key invariants: whole-GPU allocation (one L4 per session, no MIG on L4), append-only credit ledger as source of truth, unprivileged user containers with no Docker socket, admin actions audited.
+See [docs/](./docs/): `architecture.md`, `deployment.md`, `runbook.md`. Key invariants: whole-GPU allocation (one L4 per session, no MIG on L4), a GPU is always leased together with the machine it is in, append-only credit ledger as source of truth, unprivileged user containers with no Docker socket, admin actions audited.
 
 ## License
 
