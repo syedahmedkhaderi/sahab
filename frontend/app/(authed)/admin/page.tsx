@@ -11,6 +11,7 @@ import {
   Square,
   RefreshCw,
   Box,
+  HardDrive,
 } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
@@ -39,13 +40,29 @@ import {
 } from "@/components/ui/dialog";
 import { Select } from "@/components/ui/select";
 import { GpuInventoryTable } from "@/components/GpuInventoryTable";
+import { NodesPanel } from "@/components/NodesPanel";
 import { SessionStateBadge } from "@/components/SessionStateBadge";
 import { me, admin, rates as ratesApi, images as imagesApi } from "@/lib/api";
 import { ApiClientError } from "@/lib/api";
-import type { User, Session, GpuInventory, Rate, AdminMetrics, Image } from "@/lib/types";
+import type {
+  User,
+  Session,
+  GpuInventory,
+  GpuNode,
+  Rate,
+  AdminMetrics,
+  Image,
+} from "@/lib/types";
 import { formatCredits, formatDateTime, capitalize } from "@/lib/utils";
 
-type AdminTab = "overview" | "users" | "sessions" | "gpus" | "rates" | "images";
+type AdminTab =
+  | "overview"
+  | "users"
+  | "sessions"
+  | "nodes"
+  | "gpus"
+  | "rates"
+  | "images";
 
 const ACTIVE_STATES = ["starting", "running", "queued"];
 
@@ -66,6 +83,7 @@ export default function AdminPage() {
   const [users, setUsers] = useState<User[]>([]);
   const [sessions, setSessions] = useState<Session[]>([]);
   const [gpus, setGpus] = useState<GpuInventory[]>([]);
+  const [nodes, setNodes] = useState<GpuNode[]>([]);
   const [rates, setRates] = useState<Rate[]>([]);
   const [images, setImages] = useState<Image[]>([]);
   const [metrics, setMetrics] = useState<AdminMetrics | null>(null);
@@ -101,10 +119,11 @@ export default function AdminPage() {
       // way. They used to be raw fetch() calls labelled "public endpoint",
       // which they are not — a failure there returned an error body that was
       // then rendered as if it were a list.
-      const [us, ss, gs, rs, ms, imgs] = await Promise.all([
+      const [us, ss, gs, ns, rs, ms, imgs] = await Promise.all([
         admin.listUsers(),
         admin.listSessions(),
         admin.listGpus(),
+        admin.listNodes(),
         ratesApi.list(),
         admin.metrics(),
         imagesApi.list(),
@@ -112,6 +131,7 @@ export default function AdminPage() {
       setUsers(us);
       setSessions(ss);
       setGpus(gs);
+      setNodes(ns);
       setRates(rs);
       setMetrics(ms);
       setImages(imgs);
@@ -239,6 +259,10 @@ export default function AdminPage() {
     () => users.filter((u) => u.status === "pending"),
     [users]
   );
+  const unreachableNodes = useMemo(
+    () => nodes.filter((n) => n.status === "unreachable"),
+    [nodes]
+  );
 
   if (loading) {
     return (
@@ -267,6 +291,14 @@ export default function AdminPage() {
       label: "Sessions",
       icon: <Activity className="h-4 w-4" />,
       badge: activeSessions.length > 0 ? activeSessions.length : undefined,
+    },
+    {
+      id: "nodes",
+      label: "VMs",
+      icon: <HardDrive className="h-4 w-4" />,
+      // An unreachable machine is the one thing here worth interrupting for:
+      // its GPUs have left the pool and someone's session was failed.
+      badge: unreachableNodes.length > 0 ? unreachableNodes.length : undefined,
     },
     { id: "gpus", label: "GPUs", icon: <Server className="h-4 w-4" /> },
     { id: "rates", label: "Rates", icon: <Coins className="h-4 w-4" /> },
@@ -526,6 +558,12 @@ export default function AdminPage() {
                     </TableCell>
                     <TableCell className="font-mono text-muted-foreground">
                       {s.resource_type === "l4_gpu" ? "NVIDIA L4" : "CPU"}
+                      {/* With more than one GPU server, "a session is running"
+                          is only half an answer — which machine matters when
+                          one of them is misbehaving. */}
+                      {s.node_name && (
+                        <span className="block text-xs">{s.node_name}</span>
+                      )}
                     </TableCell>
                     <TableCell className="text-muted-foreground">
                       {formatDateTime(s.started_at ?? s.created_at)}
@@ -552,6 +590,10 @@ export default function AdminPage() {
             </Table>
           </TablePanel>
         )}
+      </TabPanel>
+
+      <TabPanel id="nodes" active={activeTab === "nodes"}>
+        <NodesPanel nodes={nodes} onChanged={fetchAll} />
       </TabPanel>
 
       <TabPanel id="gpus" active={activeTab === "gpus"}>

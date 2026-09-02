@@ -27,6 +27,68 @@ export interface GpuInventory {
   model: string;
   vram_mb: number;
   status: GpuStatus;
+  node_id: string;
+  /** Which machine the card is in. A GPU with no machine is meaningless. */
+  node_name: string | null;
+}
+
+// ---------------------------------------------------------
+// Nodes — the GPU servers workspaces run on
+// ---------------------------------------------------------
+
+export type NodeStatus =
+  | "pending"
+  | "enrolling"
+  | "ready"
+  | "unreachable"
+  | "draining"
+  | "disabled";
+
+export interface GpuNode {
+  id: string;
+  name: string;
+  display_name: string | null;
+  address: string;
+  docker_port: number;
+  metrics_url: string | null;
+  status: NodeStatus;
+  is_manager: boolean;
+  driver_version: string | null;
+  docker_version: string | null;
+  ssh_host: string | null;
+  ssh_port: number;
+  ssh_user: string | null;
+  ssh_auth_kind: "password" | "key" | null;
+  has_stored_credentials: boolean;
+  last_seen_at: string | null;
+  enrolled_at: string | null;
+  created_at: string;
+  gpus_total: number;
+  gpus_free: number;
+  gpus_leased: number;
+}
+
+export interface NodeCreateResponse {
+  node: GpuNode;
+  /** Shown once. The server keeps only a hash, so it cannot be shown again. */
+  enroll_token: string;
+  join_command: string;
+  expires_at: string;
+}
+
+export interface NodeInstallLog {
+  node_id: string;
+  status: string;
+  log: string;
+  started_at: string | null;
+  finished_at: string | null;
+}
+
+export interface NodeCheckResult {
+  node_id: string;
+  status: NodeStatus;
+  reachable: boolean;
+  detail: string | null;
 }
 
 // ---------------------------------------------------------
@@ -87,6 +149,9 @@ export interface Session {
   // Populated by the admin session listing so the console can name the owner.
   user_email?: string | null;
   user_full_name?: string | null;
+  /** Which machine the workspace was placed on. Null until it is placed. */
+  node_id?: string | null;
+  node_name?: string | null;
 }
 
 // ---------------------------------------------------------

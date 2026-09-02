@@ -275,6 +275,12 @@ export function LaunchForm({ balance }: LaunchFormProps) {
             ? "Credits are charged per minute from the moment it starts running."
             : "A CPU workspace does not use credits."}
         </p>
+        {/* Storage is session-scoped, so someone has to be told before they
+            start rather than after they lose a day's work. */}
+        <p className="text-center text-xs text-muted-foreground">
+          Files are deleted when the workspace stops — download anything you want
+          to keep.
+        </p>
       </div>
     </div>
   );

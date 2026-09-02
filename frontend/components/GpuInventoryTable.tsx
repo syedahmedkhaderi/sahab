@@ -34,9 +34,9 @@ export function GpuInventoryTable({ gpus }: GpuInventoryTableProps) {
   if (gpus.length === 0) {
     return (
       <p className="px-4 py-6 text-sm text-muted-foreground">
-        No GPUs are registered. Run{" "}
-        <code className="font-mono text-xs">scripts/discover_gpus.sh</code> on the
-        host to add them.
+        No GPUs are registered. Add a GPU server under{" "}
+        <span className="font-medium text-foreground">VMs</span> — enrolling a
+        machine registers its GPUs automatically.
       </p>
     );
   }
@@ -46,6 +46,7 @@ export function GpuInventoryTable({ gpus }: GpuInventoryTableProps) {
       <TableHeader>
         <TableRow>
           <TableHead>Model</TableHead>
+          <TableHead>Machine</TableHead>
           <TableHead>Memory</TableHead>
           <TableHead>UUID</TableHead>
           <TableHead className="text-right">Status</TableHead>
@@ -61,6 +62,11 @@ export function GpuInventoryTable({ gpus }: GpuInventoryTableProps) {
             <TableRow key={gpu.id}>
               <TableCell className="whitespace-nowrap font-medium text-foreground">
                 {gpu.model}
+              </TableCell>
+              {/* Which machine the card is in. With more than one GPU server,
+                  "an L4 is free" is only half the answer. */}
+              <TableCell className="whitespace-nowrap text-muted-foreground">
+                {gpu.node_name ?? "—"}
               </TableCell>
               <TableCell className="whitespace-nowrap font-mono text-muted-foreground">
                 {formatVram(gpu.vram_mb)}

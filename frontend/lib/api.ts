@@ -13,6 +13,10 @@ import type {
   LedgerEntry,
   UsagePeriod,
   GpuInventory,
+  GpuNode,
+  NodeCreateResponse,
+  NodeInstallLog,
+  NodeCheckResult,
   AdminMetrics,
   ConnectResponse,
 } from "./types";
@@ -227,6 +231,34 @@ export interface AdminImagePayload {
   enabled?: boolean;
 }
 
+export interface AdminCreateNodePayload {
+  display_name?: string;
+  name?: string;
+  address?: string;
+  ssh_host?: string;
+  ssh_port?: number;
+  ssh_user?: string;
+  ssh_password?: string;
+  ssh_private_key?: string;
+}
+
+export interface AdminUpdateNodePayload {
+  display_name?: string;
+  /** Only ready | draining | disabled. The rest are the system's to decide. */
+  status?: "ready" | "draining" | "disabled";
+  address?: string;
+  metrics_url?: string;
+}
+
+export interface AdminInstallNodePayload {
+  ssh_host?: string;
+  ssh_port?: number;
+  ssh_user?: string;
+  ssh_password?: string;
+  ssh_private_key?: string;
+  vpn_auth_key?: string;
+}
+
 export const admin = {
   // Users
   listUsers: () => get<User[]>("/admin/users"),
@@ -243,6 +275,19 @@ export const admin = {
 
   // GPUs
   listGpus: () => get<GpuInventory[]>("/admin/gpus"),
+
+  // Machines (GPU servers)
+  listNodes: () => get<GpuNode[]>("/admin/nodes"),
+  createNode: (payload: AdminCreateNodePayload) =>
+    post<NodeCreateResponse>("/admin/nodes", payload),
+  updateNode: (id: string, payload: AdminUpdateNodePayload) =>
+    patch<GpuNode>(`/admin/nodes/${id}`, payload),
+  deleteNode: (id: string) => del<void>(`/admin/nodes/${id}`),
+  checkNode: (id: string) => post<NodeCheckResult>(`/admin/nodes/${id}/check`),
+  installNode: (id: string, payload: AdminInstallNodePayload) =>
+    post<NodeInstallLog>(`/admin/nodes/${id}/install`, payload),
+  nodeInstallLog: (id: string) =>
+    get<NodeInstallLog>(`/admin/nodes/${id}/install-log`),
 
   // Rates — PUT /admin/rates upserts a single resource type.
   setRate: (payload: AdminUpdateRatePayload) =>

@@ -164,6 +164,17 @@ export default function WorkspacePage() {
   }, []);
 
   const handleStop = async () => {
+    // Stopping deletes the workspace's files. That is a one-way door, and the
+    // button sits next to a notebook someone has been working in all afternoon,
+    // so it asks rather than assumes.
+    if (
+      !window.confirm(
+        "Stop this workspace?\n\nEverything saved inside it is deleted when it " +
+          "stops. Download anything you want to keep first."
+      )
+    ) {
+      return;
+    }
     setStopping(true);
     setStopError(null);
     try {
@@ -249,6 +260,20 @@ export default function WorkspacePage() {
         </div>
       </SiteHeader>
 
+      {/* Files die with the session, so the warning has to be in front of the
+          person while they work — not buried in docs they will read afterwards,
+          if ever. Kept to one quiet line so it does not compete with the
+          notebook itself. */}
+      {session && !ended && (
+        <p
+          className="shrink-0 border-b border-border bg-warning-subtle px-4 py-1.5 text-center text-xs text-warning-strong"
+          role="status"
+        >
+          Files in this workspace are deleted when it stops. Download anything
+          you want to keep.
+        </p>
+      )}
+
       <div className="relative flex-1">
         {ended ? (
           <div className="mx-auto max-w-prose p-6">
@@ -262,7 +287,7 @@ export default function WorkspacePage() {
               description={
                 session?.state === "failed"
                   ? "Nothing was charged for it. You can try again, and tell the platform team if it keeps happening."
-                  : "Your files are still where you left them. The GPU is back in the pool."
+                  : "The GPU is back in the pool, and this workspace's files have been deleted. Anything you downloaded is still on your computer."
               }
               action={
                 <div className="flex flex-wrap gap-2">
