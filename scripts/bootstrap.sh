@@ -128,30 +128,65 @@ gen_secret() {
 # Everything else (Docker, compose, the NVIDIA toolkit) is installed by
 # install_prereqs() from scripts/lib/common.sh once the clone is present.
 ensure_clone_tools() {
-  have git && have curl && return 0
+  have git && have curl && have tar && return 0
   if ! have apt-get; then
-    die "git and curl are required to fetch Sahab, and this host has no apt-get to install them with."
+    die "git, curl and tar are required to fetch Sahab, and this host has no apt-get to install them with."
   fi
   if [[ "$(id -u)" -ne 0 ]]; then
     have sudo || die "Need root or sudo to install git/curl."
     SUDO="sudo"
   fi
   $SUDO apt-get update -y
-  $SUDO apt-get install -y git curl ca-certificates
-  ok "installed git and curl"
+  $SUDO apt-get install -y git curl tar ca-certificates
+  ok "installed git, curl and tar"
+}
+
+# GitHub serves a plain HTTPS tarball of any public repo. Used only as a
+# fallback below, so a self-hosted or otherwise non-GitHub SAHAB_REPO is left
+# to git alone.
+tarball_url() {
+  case "$SAHAB_REPO" in
+    https://github.com/*)
+      local slug="${SAHAB_REPO#https://github.com/}"
+      printf 'https://codeload.github.com/%s/tar.gz/refs/heads/%s\n' "${slug%.git}" "$SAHAB_BRANCH"
+      ;;
+    *) return 1 ;;
+  esac
 }
 
 clone_or_update() {
   step "Fetching Sahab into $SAHAB_DIR"
+
   if [[ -d "$SAHAB_DIR/.git" ]]; then
-    git -C "$SAHAB_DIR" fetch --depth 1 origin "$SAHAB_BRANCH"
+    env GIT_TERMINAL_PROMPT=0 git -C "$SAHAB_DIR" fetch --depth 1 origin "$SAHAB_BRANCH"
     git -C "$SAHAB_DIR" checkout "$SAHAB_BRANCH"
     git -C "$SAHAB_DIR" reset --hard "origin/$SAHAB_BRANCH"
     ok "updated existing clone to origin/$SAHAB_BRANCH"
-  else
-    git clone --branch "$SAHAB_BRANCH" --depth 1 "$SAHAB_REPO" "$SAHAB_DIR"
-    ok "cloned $SAHAB_REPO"
+    return 0
   fi
+
+  if [[ ! -e "$SAHAB_DIR" ]]; then
+    mkdir -p "$(dirname "$SAHAB_DIR")"
+    if env GIT_TERMINAL_PROMPT=0 git clone --branch "$SAHAB_BRANCH" --depth 1 "$SAHAB_REPO" "$SAHAB_DIR"; then
+      ok "cloned $SAHAB_REPO"
+      return 0
+    fi
+  fi
+
+  # Git could not fetch it. That is not always a network fault: some stock
+  # images ship a git old enough to choke on GitHub's protocol v2 ("expected
+  # flush after ref listing") and then prompt for a password that does not
+  # exist for a public repo. A tarball is the same code over the same HTTPS
+  # and asks nothing of git, so the install should not stop here. Only reached
+  # when there is no clone to damage -- an existing checkout is left to git.
+  local url
+  url="$(tarball_url)" \
+    || die "Could not fetch $SAHAB_REPO with git, and it is not a GitHub URL to download as a tarball."
+  warn "git could not fetch the repo; downloading the source instead"
+  mkdir -p "$SAHAB_DIR"
+  curl -fsSL "$url" | tar xz -C "$SAHAB_DIR" --strip-components=1 \
+    || die "Could not download $url either. Check this machine's outbound HTTPS access."
+  ok "downloaded $SAHAB_BRANCH from $SAHAB_REPO"
 }
 
 # ----------------------------------------------------------------------------- 3. .env

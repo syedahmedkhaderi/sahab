@@ -30,6 +30,9 @@
 #   --repo <URL>         SAHAB_REPO          git remote
 #   --skip-prereqs       SAHAB_SKIP_PREREQS=1  don't try to install docker/toolkit
 #   --skip-preflight     SAHAB_SKIP_PREFLIGHT=1 skip the GPU preflight gate
+#   --dry-run                                check this machine and print what would
+#                                            happen, without changing it or spending
+#                                            the one-time token
 #   --uninstall                              leave the cluster and undo the changes
 #   -h | --help                              show this help
 # =============================================================================
@@ -48,6 +51,7 @@ NODE_VPN_KEY="${NODE_VPN_KEY:-}"
 SAHAB_SKIP_PREREQS="${SAHAB_SKIP_PREREQS:-0}"
 SAHAB_SKIP_PREFLIGHT="${SAHAB_SKIP_PREFLIGHT:-0}"
 DO_UNINSTALL=0
+DO_DRY_RUN=0
 
 CERT_DIR="/etc/docker/sahab-certs"
 DAEMON_JSON="/etc/docker/daemon.json"
@@ -82,6 +86,7 @@ while [[ $# -gt 0 ]]; do
     --repo)           SAHAB_REPO="${2:-}"; shift 2 ;;
     --skip-prereqs)   SAHAB_SKIP_PREREQS=1; shift ;;
     --skip-preflight) SAHAB_SKIP_PREFLIGHT=1; shift ;;
+    --dry-run)        DO_DRY_RUN=1; shift ;;
     --uninstall)      DO_UNINSTALL=1; shift ;;
     -h|--help)        usage ;;
     *) die "Unknown option: $1  (try --help)" ;;
@@ -123,31 +128,65 @@ join_vpn() {
 # Everything else (Docker, compose, the NVIDIA toolkit) is installed by
 # install_prereqs() from scripts/lib/common.sh once the clone is present.
 ensure_clone_tools() {
-  have git && have curl && return 0
+  have git && have curl && have tar && return 0
   if ! have apt-get; then
-    die "git and curl are required to fetch Sahab, and this host has no apt-get to install them with."
+    die "git, curl and tar are required to fetch Sahab, and this host has no apt-get to install them with."
   fi
   if [[ "$(id -u)" -ne 0 ]]; then
     have sudo || die "Need root or sudo to install git/curl."
     SUDO="sudo"
   fi
   $SUDO apt-get update -y
-  $SUDO apt-get install -y git curl ca-certificates
-  ok "installed git and curl"
+  $SUDO apt-get install -y git curl tar ca-certificates
+  ok "installed git, curl and tar"
+}
+
+# GitHub serves a plain HTTPS tarball of any public repo. Used only as a
+# fallback below, so a self-hosted or otherwise non-GitHub SAHAB_REPO is left
+# to git alone.
+tarball_url() {
+  case "$SAHAB_REPO" in
+    https://github.com/*)
+      local slug="${SAHAB_REPO#https://github.com/}"
+      printf 'https://codeload.github.com/%s/tar.gz/refs/heads/%s\n' "${slug%.git}" "$SAHAB_BRANCH"
+      ;;
+    *) return 1 ;;
+  esac
 }
 
 clone_or_update() {
   step "Fetching Sahab into $SAHAB_DIR"
+
   if [[ -d "$SAHAB_DIR/.git" ]]; then
-    $SUDO git -C "$SAHAB_DIR" fetch --depth 1 origin "$SAHAB_BRANCH"
+    $SUDO env GIT_TERMINAL_PROMPT=0 git -C "$SAHAB_DIR" fetch --depth 1 origin "$SAHAB_BRANCH"
     $SUDO git -C "$SAHAB_DIR" checkout "$SAHAB_BRANCH"
     $SUDO git -C "$SAHAB_DIR" reset --hard "origin/$SAHAB_BRANCH"
     ok "updated existing clone to origin/$SAHAB_BRANCH"
-  else
-    $SUDO mkdir -p "$(dirname "$SAHAB_DIR")"
-    $SUDO git clone --branch "$SAHAB_BRANCH" --depth 1 "$SAHAB_REPO" "$SAHAB_DIR"
-    ok "cloned $SAHAB_REPO"
+    return 0
   fi
+
+  if [[ ! -e "$SAHAB_DIR" ]]; then
+    $SUDO mkdir -p "$(dirname "$SAHAB_DIR")"
+    if $SUDO env GIT_TERMINAL_PROMPT=0 git clone --branch "$SAHAB_BRANCH" --depth 1 "$SAHAB_REPO" "$SAHAB_DIR"; then
+      ok "cloned $SAHAB_REPO"
+      return 0
+    fi
+  fi
+
+  # Git could not fetch it. That is not always a network fault: some stock
+  # images ship a git old enough to choke on GitHub's protocol v2 ("expected
+  # flush after ref listing") and then prompt for a password that does not
+  # exist for a public repo. A tarball is the same code over the same HTTPS
+  # and asks nothing of git, so the install should not stop here. Only reached
+  # when there is no clone to damage -- an existing checkout is left to git.
+  local url
+  url="$(tarball_url)" \
+    || die "Could not fetch $SAHAB_REPO with git, and it is not a GitHub URL to download as a tarball."
+  warn "git could not fetch the repo; downloading the source instead"
+  $SUDO mkdir -p "$SAHAB_DIR"
+  curl -fsSL "$url" | $SUDO tar xz -C "$SAHAB_DIR" --strip-components=1 \
+    || die "Could not download $url either. Check this machine's outbound HTTPS access."
+  ok "downloaded $SAHAB_BRANCH from $SAHAB_REPO"
 }
 
 # ----------------------------------------------------------------------------- 2. preflight
@@ -376,6 +415,24 @@ uninstall() {
 }
 
 # ----------------------------------------------------------------------------- main
+# What a dry run prints instead of doing. It stops before enroll() on purpose:
+# the token is single-use, so spending it on a rehearsal would leave the admin
+# with a dead command and no obvious reason why.
+dry_run_plan() {
+  printf "\n%sDry run — nothing further will be changed.%s\n\n" "$B" "$N"
+  echo "  This machine checks out. A real run would go on to:"
+  echo "    - register with $SAHAB_SERVER and collect its certificates"
+  echo "    - write /etc/docker/daemon.json and restart Docker, so the control"
+  echo "      plane can reach this machine's Docker API on port $NODE_DOCKER_PORT"
+  echo "    - join the cluster's overlay network"
+  echo "    - pull the workspace images"
+  echo "    - start the GPU and host metrics exporters"
+  echo "    - hand its GPUs to Sahab, after which they appear on the website"
+  echo
+  echo "  Re-run without --dry-run to do it. The token is still unused."
+  echo
+}
+
 main() {
   printf "%s\n  Sahab — adding this GPU server to an existing Sahab\n%s\n" "$B" "$N"
 
@@ -387,6 +444,16 @@ main() {
   [[ -z "$SAHAB_SERVER" ]] && die "Missing --server. Get the full command from Admin -> VMs -> Add VM in the Sahab console."
   [[ -z "$SAHAB_ENROLL_TOKEN" ]] && die "Missing --token. Get the full command from Admin -> VMs -> Add VM in the Sahab console."
   SAHAB_SERVER="${SAHAB_SERVER%/}"
+
+  if [[ "$DO_DRY_RUN" == "1" ]]; then
+    warn "dry run: this machine will be checked, not changed, and the token stays unused"
+    # Installing packages is a change, so a dry run does not do it. If Docker or
+    # the toolkit are missing, the preflight below is what says so.
+    SAHAB_SKIP_PREREQS=1
+    if ! (have git || have curl) || ! have tar; then
+      die "A dry run will not install anything, and this host is missing git/curl/tar. Install them, or drop --dry-run."
+    fi
+  fi
 
   ensure_clone_tools
   clone_or_update
@@ -401,6 +468,12 @@ main() {
   fi
 
   run_preflight
+
+  if [[ "$DO_DRY_RUN" == "1" ]]; then
+    dry_run_plan
+    return 0
+  fi
+
   # Clean up the enrollment response (it holds the join token and this
   # machine's Docker key) however the script exits from here on.
   trap 'rm -f "${ENROLL_JSON:-}"' EXIT
