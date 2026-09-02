@@ -93,7 +93,8 @@ async def test_scheduler_skips_the_busy_gpu(
     await db_session.flush()
 
     leased = await scheduler_svc.try_lease_gpu(session.id, db_session, redis)
-    assert leased == idle
+    assert leased is not None
+    assert leased.gpu_uuid == idle
     await redis.aclose()
 
 

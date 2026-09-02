@@ -39,9 +39,12 @@ async def test_lease_gpu_success(
     redis = fakeredis.FakeRedis()
     session = await _make_session(db_session, active_user.id)
 
-    gpu_uuid = await try_lease_gpu(session.id, db_session, redis)
-    assert gpu_uuid is not None
-    assert gpu_uuid in [g.gpu_uuid for g in gpu_inventory]
+    lease = await try_lease_gpu(session.id, db_session, redis)
+    assert lease is not None
+    assert lease.gpu_uuid in [g.gpu_uuid for g in gpu_inventory]
+    # The lease names the machine as well as the card: a UUID on its own would
+    # be meaningless to a container started somewhere else.
+    assert lease.node_name == "test-manager"
 
     await redis.aclose()
 

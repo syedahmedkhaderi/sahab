@@ -130,15 +130,15 @@ async def create_session(
         # is not the same as an empty pool: queueing behind it would be a lie.
         busy_error: scheduler_svc.GpuBusyError | None = None
         try:
-            gpu_uuid = await scheduler_svc.try_lease_gpu(session.id, db, redis)
+            lease = await scheduler_svc.try_lease_gpu(session.id, db, redis)
         except scheduler_svc.GpuBusyError as exc:
-            gpu_uuid = None
+            lease = None
             busy_error = exc
 
-        if gpu_uuid is not None:
+        if lease is not None:
             # GPU acquired — advance to starting
             await _advance_to_starting_internal(
-                session, gpu_uuid, db, redis, hub, user, settings
+                session, lease, db, redis, hub, user, settings
             )
         elif cpu_fallback:
             # No GPU available and user opted for CPU fallback
@@ -168,7 +168,7 @@ async def create_session(
 
 async def _advance_to_starting_internal(
     session: Session,
-    gpu_uuid: str,
+    lease: scheduler_svc.Lease,
     db: AsyncSession,
     redis: Redis,
     hub: JupyterHubClient,
@@ -177,14 +177,17 @@ async def _advance_to_starting_internal(
 ) -> None:
     session.state = SessionState.starting
     session.queue_pos = None
+    # Record where the workspace is being placed, so the UI can say which machine
+    # it landed on and the health job can find its sessions if that machine dies.
+    session.node_id = lease.node_id
     db.add(session)
     await db.flush()
-    await _start_hub_server(session, gpu_uuid, db, redis, hub, user, settings)
+    await _start_hub_server(session, lease, db, redis, hub, user, settings)
 
 
 async def advance_to_starting(
     session_id: str,
-    gpu_uuid: str,
+    lease: scheduler_svc.Lease,
     db: AsyncSession,
     redis: Redis,
 ) -> None:
@@ -203,7 +206,7 @@ async def advance_to_starting(
     if user is None:
         return
 
-    await _advance_to_starting_internal(session, gpu_uuid, db, redis, hub, user, settings)
+    await _advance_to_starting_internal(session, lease, db, redis, hub, user, settings)
 
 
 def _classify_spawn_failure(exc: Exception) -> tuple[str, str]:
@@ -252,14 +255,22 @@ def _classify_spawn_failure(exc: Exception) -> tuple[str, str]:
 
 async def _start_hub_server(
     session: Session,
-    gpu_uuid: str | None,
+    lease: scheduler_svc.Lease | None,
     db: AsyncSession,
     redis: Redis,
     hub: JupyterHubClient,
     user: User,
     settings: Settings,
 ) -> None:
-    """Call JupyterHub to spawn the container, then mark the session running."""
+    """Call JupyterHub to spawn the container, then mark the session running.
+
+    A lease carries both the GPU and the machine it is in. A CPU session has no
+    lease, and no node either: it can start anywhere, so the hub places it on the
+    manager, which is the only machine guaranteed to be there.
+    """
+    gpu_uuid = lease.gpu_uuid if lease else None
+    node_name = lease.node_name if lease else None
+
     # Resolve image docker ref
     image_ref = settings.workspace_gpu_image if gpu_uuid else settings.workspace_cpu_image
     if session.image_id:
@@ -276,6 +287,7 @@ async def _start_hub_server(
             username=username,
             gpu_uuid=gpu_uuid,
             image=image_ref,
+            node=node_name,
         )
         # Mark as running once Hub accepts the request
         now = datetime.now(tz=timezone.utc)

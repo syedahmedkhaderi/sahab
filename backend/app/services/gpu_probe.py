@@ -33,8 +33,11 @@ _UUID_RE = re.compile(r'UUID="(?P<uuid>[^"]+)"')
 _CACHE_TTL_SECONDS = 5.0
 _REQUEST_TIMEOUT_SECONDS = 2.0
 
-# Module-level memo: (expires_at, readings)
-_cache: tuple[float, dict[str, "GpuReading"]] | None = None
+# Module-level memo, keyed by exporter URL: url -> (expires_at, readings).
+# Keying by URL matters once there is more than one machine: a single shared slot
+# would hand the second node's scheduler the first node's numbers and place work
+# on a GPU it believes is idle.
+_cache: dict[str, tuple[float, dict[str, "GpuReading"]]] = {}
 
 
 class GpuReading:
@@ -90,11 +93,10 @@ async def get_gpu_readings(metrics_url: str) -> dict[str, GpuReading] | None:
     Returns None if the exporter is unreachable, slow, or unparseable — callers
     must fall back to the DB-status-only path in that case.
     """
-    global _cache
-
     now = time.monotonic()
-    if _cache is not None and _cache[0] > now:
-        return _cache[1]
+    cached = _cache.get(metrics_url)
+    if cached is not None and cached[0] > now:
+        return cached[1]
 
     try:
         async with httpx.AsyncClient(timeout=_REQUEST_TIMEOUT_SECONDS) as client:
@@ -102,18 +104,21 @@ async def get_gpu_readings(metrics_url: str) -> dict[str, GpuReading] | None:
             response.raise_for_status()
             readings = parse_dcgm_metrics(response.text)
     except Exception as exc:
-        logger.warning("GPU probe unavailable (%s); falling back to DB status", exc)
+        logger.warning(
+            "GPU probe at %s unavailable (%s); falling back to DB status", metrics_url, exc
+        )
         return None
 
     if not readings:
-        logger.warning("GPU probe returned no usable samples; falling back to DB status")
+        logger.warning(
+            "GPU probe at %s returned no usable samples; falling back to DB status", metrics_url
+        )
         return None
 
-    _cache = (now + _CACHE_TTL_SECONDS, readings)
+    _cache[metrics_url] = (now + _CACHE_TTL_SECONDS, readings)
     return readings
 
 
 def reset_cache() -> None:
     """Drop the memoised readings. Used by tests."""
-    global _cache
-    _cache = None
+    _cache.clear()

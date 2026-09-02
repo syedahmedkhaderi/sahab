@@ -61,13 +61,19 @@ class JupyterHubClient:
         image: str,
         mem_limit: str = "32G",
         cpu_limit: float = 8.0,
+        node: str | None = None,
     ) -> None:
         """
         Request JupyterHub to start this user's single-user server.
 
         The JupyterHub spawn API forwards the JSON body into spawner
         user_options, which our pre_spawn_hook reads to apply image,
-        GPU assignment, and container resource limits.
+        GPU assignment, container resource limits, and which machine to
+        start the container on.
+
+        `node` and `gpu_uuid` belong together: the UUID names a card that only
+        exists on one machine, so sending one without the other would start the
+        container somewhere the GPU is not.
         """
         payload: dict[str, Any] = {
             "image": image,
@@ -76,6 +82,8 @@ class JupyterHubClient:
         }
         if gpu_uuid:
             payload["gpu_uuid"] = gpu_uuid
+        if node:
+            payload["node"] = node
 
         async with self._client() as client:
             resp = await client.post(
@@ -90,7 +98,10 @@ class JupyterHubClient:
                     resp.text,
                 )
                 resp.raise_for_status()
-            logger.info("JupyterHub: requested server start for user %s", username)
+            logger.info(
+                "JupyterHub: requested server start for user %s on node %s",
+                username, node or "(default)",
+            )
 
     async def stop_server(self, username: str) -> None:
         """Request JupyterHub to stop this user's single-user server."""
