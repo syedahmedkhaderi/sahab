@@ -156,3 +156,70 @@ async def test_unauthenticated_admin_request(client: AsyncClient) -> None:
     """Unauthenticated requests to admin endpoints should return 401."""
     resp = await client.get("/api/admin/users")
     assert resp.status_code == 401
+
+
+# ---------------------------------------------------------------------------
+# Enum-backed request fields
+#
+# Every one of these used to reach Postgres as a raw string and fail there, so
+# the user saw a 500 and the log got a stack trace. They must be rejected at the
+# edge, with a message that names the field.
+# ---------------------------------------------------------------------------
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize(
+    ("method", "path", "body"),
+    [
+        ("POST", "/api/sessions", {"resource_type": "quantum_gpu"}),
+        ("POST", "/api/admin/images", {"name": "x", "docker_ref": "y", "kind": "tpu"}),
+        ("PUT", "/api/admin/rates", {"resource_type": "wishful", "credits_per_minute": 1}),
+        ("POST", "/api/admin/users",
+         {"email": "e@udst.edu.qa", "full_name": "E", "password": "password12345",
+          "role": "overlord"}),
+    ],
+)
+async def test_invalid_enum_values_are_refused_at_the_edge(
+    client: AsyncClient, admin_user: User, method: str, path: str, body: dict
+) -> None:
+    token = await _login(client, admin_user.email, "adminpassword123")
+    headers = {"Authorization": f"Bearer {token}"}
+
+    resp = await client.request(method, path, json=body, headers=headers)
+
+    assert resp.status_code == 422, f"{path} returned {resp.status_code}: {resp.text}"
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize("field", ["role", "status"])
+async def test_invalid_user_updates_are_refused(
+    client: AsyncClient, admin_user: User, active_user: User, field: str
+) -> None:
+    token = await _login(client, admin_user.email, "adminpassword123")
+
+    resp = await client.patch(
+        f"/api/admin/users/{active_user.id}",
+        json={field: "not-a-real-value"},
+        headers={"Authorization": f"Bearer {token}"},
+    )
+
+    assert resp.status_code == 422, resp.text
+
+
+@pytest.mark.asyncio
+async def test_a_bogus_rate_never_reaches_the_public_listing(
+    client: AsyncClient, admin_user: User, default_rates
+) -> None:
+    """A junk rate row is priced work nothing can ever request."""
+    token = await _login(client, admin_user.email, "adminpassword123")
+    headers = {"Authorization": f"Bearer {token}"}
+
+    await client.put(
+        "/api/admin/rates",
+        json={"resource_type": "bogus_type", "credits_per_minute": 9.9},
+        headers=headers,
+    )
+
+    listed = await client.get("/api/rates", headers=headers)
+    assert listed.status_code == 200
+    assert {r["resource_type"] for r in listed.json()} <= {"l4_gpu", "cpu"}

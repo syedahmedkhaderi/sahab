@@ -3,9 +3,11 @@ Sahab background worker — APScheduler driving metering and queue drain.
 
 Run as: python -m app.worker
 
-Two jobs:
+Three jobs:
   - meter_tick  : every 60 s — deduct credits for all running sessions.
   - queue_tick  : every 30 s — try to promote queued sessions when GPUs free.
+  - node_tick   : every 60 s — probe every GPU server, and evacuate one that has
+                  been unreachable past the grace period.
 """
 
 from __future__ import annotations
@@ -22,6 +24,7 @@ from app.config import get_settings
 from app.db import AsyncSessionLocal, engine, Base
 from app.services.jupyterhub import JupyterHubClient
 from app.services.metering import meter_active_sessions
+from app.services.node_health import check_all_nodes
 from app.services.scheduler import drain_queue
 
 logging.basicConfig(
@@ -57,6 +60,17 @@ async def queue_tick() -> None:
         await redis.aclose()
 
 
+async def node_tick() -> None:
+    redis = Redis.from_url(settings.redis_url, decode_responses=False)
+    try:
+        async with AsyncSessionLocal() as db:
+            await check_all_nodes(db=db, redis=redis, settings=settings)
+    except Exception as exc:
+        logger.error("node_tick error: %s", exc, exc_info=True)
+    finally:
+        await redis.aclose()
+
+
 async def main() -> None:
     logger.info("Sahab worker starting...")
 
@@ -67,9 +81,13 @@ async def main() -> None:
     scheduler = AsyncIOScheduler()
     scheduler.add_job(meter_tick, "interval", seconds=60, id="meter", max_instances=1)
     scheduler.add_job(queue_tick, "interval", seconds=30, id="queue", max_instances=1)
+    scheduler.add_job(node_tick, "interval", seconds=60, id="nodes", max_instances=1)
     scheduler.start()
 
-    logger.info("Worker running. Jobs: meter (60 s), queue drain (30 s). Press Ctrl+C to stop.")
+    logger.info(
+        "Worker running. Jobs: meter (60 s), queue drain (30 s), node health (60 s). "
+        "Press Ctrl+C to stop."
+    )
 
     stop_event = asyncio.Event()
 
